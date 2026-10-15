@@ -8,9 +8,11 @@ authors = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "flip-evaluator>=1.7",
     "imageio>=2.38.1",
     "matplotlib>=3.11.2",
     "numpy>=2.5.4",
+    "openexr>=3.5.2",
     "slangpy>=0.43.1",
     "torch>=2.11.0",
     "torchvision>=0.26.0",
