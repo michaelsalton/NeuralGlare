@@ -136,8 +136,10 @@ Split train and test **by scene**. Never train per scene.
 
 ## 7. Plan
 
-### Phase 0: Gap study (do this first, ~1 week)
+### Phase 0: Gap study
 Before any training code, prove the problem exists.
+
+The claim: Real lenses blue light differently at the edge of the frame than at the center. A single bloom kernel applied everywhere, which is what every real-time method does, is therefore visibly wrong. The error grows toward the edges
 
 1. **Test inputs.** `experiments/01_gap_study/make_inputs.py` writes them to `data/inputs/` with a `manifest.json`.
    - A synthetic 7×5 single-pixel point-light grid (intensity 1e4, 6% margin).
@@ -154,22 +156,22 @@ Before any training code, prove the problem exists.
 - **Gap large and growing toward the edges:** proceed.
 - **Gap small with realistic aberrations:** pivot. Either make aperture shape and chromatic effects (uniform-kernel quality at pyramid cost) the framing, or switch to camera-matched bloom learned from photographs.
 
-### Phase 1: Slang plumbing (~2 weeks)
+### Phase 1: Slang plumbing
 - Train a Slang MLP pyramid to reproduce plain Gaussian bloom. This is the sanity check.
 - Compile to HLSL and confirm Unity output matches Python output on the same frame.
 
-### Phase 2: Neural glare model (Dec–Jan)
+### Phase 2: Neural glare model
 - Train against the spatially varying reference.
 - Ablations: MLP size, which levels get MLPs, input features, and the screen-position encoding.
 
-### Phase 3: Engine deployment and timing (Feb)
+### Phase 3: Engine deployment and timin
 - **Unity (required):** run in the URP renderer feature.
 - **Unreal (required):** time the convolution-bloom baseline on the same scenes and GPUs.
 - **Unreal deployment (stretch):** the NeuralGlare plugin from the same generated HLSL. Do this only if Unity is finished early; otherwise list it as future work.
 - Timings with RenderDoc / Nsight at 1080p, 1440p and 4K on multiple GPUs, using the same GPUs and resolutions in both engines.
 
-### Phase 4: Evaluation and writing (Mar → April deadline)
-- Full metric table, held-out scenes, flicker study, figures, paper.
+### Phase 4: Evaluation
+- Full metric table, held-out scenes, flicker study.
 
 ---
 

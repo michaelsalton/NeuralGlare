@@ -2,7 +2,7 @@
 
 !!! PLACEHOLDER VALUES !!!
 The Seidel coefficients, vignetting and scatter numbers below are rough, plausible
-values so the Phase 0 pipeline can run end to end. Before ANY result is reported:
+values so the pipeline can run end to end. Before ANY result is reported:
   - replace the Seidel coefficients with third-order coefficients computed from a
     published lens prescription (e.g. a double-Gauss or Cooke triplet from a textbook
     or patent), and cite the source next to each value;

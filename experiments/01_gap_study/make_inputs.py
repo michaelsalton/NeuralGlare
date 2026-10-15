@@ -15,9 +15,10 @@ import argparse
 import json
 import os
 
-import cv2
+import cv2 
 import numpy as np
-import OpenEXR
+
+from neuralglare.io import luminance, read_hdr, write_exr, write_preview
 
 W, H = 1920, 1080
 HFOV_DEG = 60.0 # horizontal field of view for the virtual camera
@@ -25,38 +26,8 @@ HFOV_DEG = 60.0 # horizontal field of view for the virtual camera
 # where the brightest light lands in each view: (name, yaw_deg, pitch_deg) offsets
 # from the image centre, +yaw = right, +pitch = up
 DEFAULT_VIEWS = [("center", 0.0, 0.0), ("mid", 15.0, 6.0), ("corner", 25.0, 14.0)]
-
-# ---------------------------------------------------------------- I/O helpers
-def write_exr(path, rgb):
-    header = {"compression": OpenEXR.ZIP_COMPRESSION, "type": OpenEXR.scanlineimage}
-    OpenEXR.File(header, {"RGB": np.ascontiguousarray(rgb, dtype=np.float32)}).write(path)
     
-def read_exr(path):
-    with OpenEXR.File(path) as f:
-        ch = f.channels()
-        if "RGB" in ch:
-            return ch["RGB"].pixels.astype(np.float32)
-        if "RGBA" in ch:
-            return ch["RGBA"].pixels[..., :3].astype(np.float32)  # drop alpha
-        return np.stack([ch[c].pixels for c in ("R", "G", "B")], -1).astype(np.float32)
 
-def read_hdr(path):
-    if path.lower().endswith(".exr"):
-        return read_exr(path)
-    img = cv2.imread(path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)  # Radiance .hdr
-    if img is None:
-        raise OSError(f"failed to read {path}")
-    return img[..., ::-1].astype(np.float32)
-
-def luminance(rgb):
-    return 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
-
-def write_preview(path, rgb):
-    """Reinhard + sRGB gamma, only for eyeballing. Never used as data."""
-    x = rgb / (1.0 + rgb)
-    x = np.clip(x, 0, 1) ** (1 / 2.2)
-    cv2.imwrite(path, (x[..., ::-1] * 255).astype(np.uint8))
-    
 def stats(rgb):
     lum = luminance(rgb)
     return {
@@ -67,7 +38,8 @@ def stats(rgb):
         "frac_pixels_above_1": float((lum > 1.0).mean()),
         "finite": bool(np.isfinite(rgb).all()),
     }
-        
+ 
+ 
 # ---------------------------------------------------------- synthetic inputs
 def point_grid(cols=7, rows=5, intensity=1e4, margin=0.06):
     """Single-pixel deltas, evenly spaced, inset so edge PSFs stay in frame."""
@@ -79,7 +51,8 @@ def point_grid(cols=7, rows=5, intensity=1e4, margin=0.06):
             img[y, x] = intensity
     return img, {"cols": cols, "rows": rows, "intensity": intensity, "margin": margin,
                  "xs": xs.tolist(), "ys": ys.tolist()}
-    
+ 
+ 
 # ---------------------------------------------- equirect -> perspective crop
 def equirect_to_perspective(equi, yaw_deg, pitch_deg, hfov_deg=HFOV_DEG):
     """Pinhole view of an equirectangular panorama (bilinear, wraps horizontally)."""
@@ -99,26 +72,15 @@ def equirect_to_perspective(equi, yaw_deg, pitch_deg, hfov_deg=HFOV_DEG):
     mx = ((lon / (2 * np.pi) + 0.5) * ew - 0.5).astype(np.float32)
     my = ((0.5 - lat / np.pi) * eh - 0.5).astype(np.float32)
     return cv2.remap(equi, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)
-
+ 
+ 
 def normalize_exposure(rgb, target_median=0.18):
     """Scale so the median luminance is mid-grey. Preserves all ratios (no clamping)."""
     med = np.median(luminance(rgb))
     scale = target_median / max(med, 1e-8)
     return rgb * scale, float(scale)
-
-def brightest_direction(equi, size=(512, 256)):
-    """(yaw_deg, pitch_deg) of the brightest region of an equirectangular panorama.
-
-    Box-downsample first (like reading a lower mip) so an extended source such as the
-    sun wins over a single hot pixel."""
-    small = cv2.resize(luminance(equi), size, interpolation=cv2.INTER_AREA)
-    y, x = np.unravel_index(np.argmax(small), small.shape)
-    w, h = size
-    yaw = ((x + 0.5) / w - 0.5) * 360.0
-    pitch = (0.5 - (y + 0.5) / h) * 180.0
-    return float(yaw), float(pitch)
-
-
+ 
+ 
 # ----------------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
@@ -140,19 +102,14 @@ def main():
             name = os.path.splitext(fn)[0]
             equi = read_hdr(os.path.join(args.hdri_dir, fn))
             src_max = float(luminance(equi).max())
-            src_yaw, src_pitch = brightest_direction(equi)
-            for view, d_yaw, d_pitch in DEFAULT_VIEWS:
-                yaw, pitch = src_yaw - d_yaw, src_pitch - d_pitch
+            for view, yaw, pitch in DEFAULT_VIEWS:
                 crop, scale = normalize_exposure(equirect_to_perspective(equi, yaw, pitch))
-                ly, lx = np.unravel_index(np.argmax(luminance(crop)), crop.shape[:2])
                 key = f"{name}_{view}"
                 write_exr(f"{args.out}/{key}.exr", crop)
                 write_preview(f"{args.out}/{key}_preview.png", crop)
                 manifest["images"][key] = {
                     "type": "hdri_crop", "source": fn, "yaw_deg": yaw, "pitch_deg": pitch,
-                    "light_dir_deg": [src_yaw, src_pitch], "light_px": [int(lx), int(ly)],
                     "exposure_scale": scale, "source_max_lum": src_max, **stats(crop)}
-
  
     with open(f"{args.out}/manifest.json", "w") as fh:
         json.dump(manifest, fh, indent=2)

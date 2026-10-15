@@ -20,9 +20,8 @@ it is spatially invariant and much wider than K, so convolve.py applies it
 separately via scatter_kernel().
 
 Usage (from the repo root):
-    uv run python -m neuralglare.reference.psf --config quick --out data/psf/psf_quick.npz
-    uv run python -m neuralglare.reference.psf --config default --out data/psf/psf_default.npz
-
+    python -m reference.psf --config quick --out data/psf/psf_quick.npz
+    python -m reference.psf --config default --out data/psf/psf_default.npz
 """
 
 import argparse
@@ -150,12 +149,15 @@ def compute_psf_grid(cfg, verbose=True):
 
 
 # ------------------------------------------------------------- scatter halo
-def scatter_kernel(cfg, size):
-    """Spatially invariant veiling-glare kernel, `size`×`size` (odd), sum 1.
-    Choose `size` large (up to ~2× the image) since the halo is wide."""
-    s = cfg.scatter
-    r = np.arange(size) - size // 2
-    rr = r[None, :] ** 2 + r[:, None] ** 2
+def scatter_kernel(scatter, size):
+    """Spatially invariant veiling-glare kernel (lens_params.Scatter), sum 1.
+    `size` is an odd int or an odd (height, width) pair; make it ~2× the image so the
+    halo from any pixel covers the whole frame."""
+    s = scatter
+    kh, kw = (size, size) if np.isscalar(size) else size
+    ry = np.arange(kh) - kh // 2
+    rx = np.arange(kw) - kw // 2
+    rr = rx[None, :] ** 2 + ry[:, None] ** 2
     k = (rr + s.core_radius_px ** 2) ** (-s.exponent / 2.0)
     return (k / k.sum()).astype(np.float32)
 
