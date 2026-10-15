@@ -1,0 +1,44 @@
+[project]
+name = "neuralglare"
+version = "0.1.0"
+description = "Neural rendering research: real-time simulation of glare/bloom"
+readme = "README.md"
+authors = [
+    { name = "michaelsalton", email = "msalton6@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "imageio>=2.38.1",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.4",
+    "slangpy>=0.43.1",
+    "torch>=2.11.0",
+    "torchvision>=0.26.0",
+    "tqdm>=4.70.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+# PyTorch's CUDA builds live on PyTorch's own package index; the default index
+# only has the CPU build on Windows. `explicit` keeps everything else on PyPI.
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.ruff]
+line-length = 100
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.4.0",
+    "jupyterlab>=4.6.4",
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]

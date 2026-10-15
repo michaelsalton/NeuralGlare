@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Experiment outputs (keep the folder)
+outputs/*
+!outputs/.gitkeep
+
+# Datasets (too large for git; keep the folder)
+data/*
+!data/.gitkeep
+
+# Slang / slangpy caches and compiled shaders
+.slangpy_cache/
+*.spv
+*.dxil
+*.metallib
+
+.DS_Store
+
+CLAUDE.md
