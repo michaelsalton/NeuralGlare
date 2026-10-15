@@ -74,7 +74,8 @@ def wavefront_waves(x, y, R, seidel, H, field_dir):
 # --------------------------------------------------------- monochromatic PSF
 def subsamples_per_pixel(cfg):
     lam_min = min(cfg.spectral.wavelengths_um)
-    return int(math.ceil(2.0 * cfg.camera.pixel_pitch_um / (lam_min * cfg.camera.f_number)))
+    b = int(math.ceil(2.0 * cfg.camera.pixel_pitch_um / (lam_min * cfg.camera.f_number)))
+    return b if b % 2 else b + 1    # odd, so pixel bins are centred on the PSF origin
 
 
 def psf_mono(cfg, lam_um, H, field_dir, seidel):
