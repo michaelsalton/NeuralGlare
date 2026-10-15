@@ -139,7 +139,11 @@ Split train and test **by scene**. Never train per scene.
 ### Phase 0: Gap study (do this first, ~1 week)
 Before any training code, prove the problem exists.
 
-1. **Test inputs.** A synthetic point-light grid plus 2–3 HDRI crops.
+1. **Test inputs.** `experiments/01_gap_study/make_inputs.py` writes them to `data/inputs/` with a `manifest.json`.
+   - A synthetic 7×5 single-pixel point-light grid (intensity 1e4, 6% margin).
+   - 4 Poly Haven HDRIs × 3 views = 12 perspective crops at 1920×1080 with a 60° horizontal FOV. Each view is aimed so the HDRI's brightest region lands at a fixed field offset: `center` 0°, `mid` (15°, 6°) ≈ 16°, `corner` (25°, 14°) ≈ 28°, along the frame diagonal.
+   - Each crop is exposure-normalized to a median luminance of 0.18, with no clamping. The manifest records where the brightest pixel actually landed (`light_px`). Use it, not the nominal offsets, as the field position.
+   - `historic_cloister_passage` is an overcast sky with no point source, so it gives only broad, low-contrast glare. Consider replacing it with a sun HDRI.
 2. **PSF set.** Implement `psf.py` from Seidel coefficients and the aperture with vignetting, on an 8×6 field grid.
 3. **Reference.** Implement the spatially varying convolution in `convolve.py`. Sanity check: each grid point should match its local PSF.
 4. **Baselines.** Uniform FFT (center and best-fit PSF), plus pyramid bloom **with fitted parameters**.
@@ -192,3 +196,5 @@ Before any training code, prove the problem exists.
 | 2026-10-15 | Project named NeuralGlare | |
 | 2026-10-15 | Unity URP primary engine; Unreal as baseline harness + stretch deployment | HDRP in maintenance mode; Unreal ships FFT convolution bloom |
 | 2026-10-15 | Python code (reference, baselines, train, eval) lives under `src/neuralglare/` | Importable from experiments, tests and notebooks without path hacks |
+| 2026-10-15 | Gap-study HDRI crops are aimed at each HDRI's brightest region (argmax of an 8×8 box-downsampled luminance), with views at fixed field offsets 0° / (15°, 6°) / (25°, 14°) | Fixed-angle views missed the light in 5 of 12 crops. Fixed field offsets give a controlled sweep of field angle, which is the variable the gap study measures |
+| 2026-10-15 | Gap-study crops are exposure-normalized to a median luminance of 0.18, scaling only (no clamp or tonemap) | Puts the scenes on a comparable exposure while preserving every HDR ratio. The scale factor is logged per crop |
