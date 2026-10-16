@@ -179,8 +179,18 @@ The claim: Real lenses blue light differently at the edge of the frame than at t
 
 - Karp, Gruszka, Trzciński. *Neural Bloom: A Deep Learning Approach to Real-Time Lighting.* arXiv 2509.05963, 2025.
 - Nalbach et al. *Deep Shading: Convolutional Neural Networks for Screen Space Shading.* CGF 2017.
+- Spencer, Shirley, Zimmerman, Greenberg. *Physically-Based Glare Effects for Digital Images.* SIGGRAPH 1995. (Citation to verify.)
+- Kakimoto, Matsuoka, Nishita, Naemura, Harashima. *Glare Generation Based on Wave Optics.* CGF 24(2), 2005. doi:10.1111/j.1467-8659.2005.00842.x
 - Ritschel et al. *Temporal Glare: Real-Time Dynamic Simulation of the Scattering in the Human Eye.* CGF 2009.
+- Liu, Wu, Zheng. GPU real-time glare via FFT Fraunhofer / Fresnel diffraction. *Journal of Computer-Aided Design & Computer Graphics*, 2013. (Title to verify; check whether it is spatially varying.)
 - Hullin et al. *Physically-Based Real-Time Lens Flare Rendering.* SIGGRAPH 2011.
+- Lee, Eisemann. *Practical Real-Time Lens-Flare Rendering.* CGF 32(4), 2013.
+- Jimenez. *Next Generation Post Processing in Call of Duty: Advanced Warfare.* SIGGRAPH 2014 Advances in Real-Time Rendering course. Energy-conserving pyramid bloom. (Citation to verify.)
+- Flicker, Rigaut. *Anisoplanatic Deconvolution of Adaptive Optics Images.* JOSA A, 2005. Low-rank decomposition of a spatially varying PSF; candidate non-neural baseline. (Citation to verify.)
+- Wu, He, Xue, Garg, Chen, Veeraraghavan, Barron. *How to Train Neural Networks for Flare Removal.* ICCV 2021. Wave-optics flare synthesis; template for the reference generator.
+- Tseng et al. *Neural Nano-Optics for High-Quality Thin Lens Imaging.* Nature Communications 2021. Patch-wise spatially varying PSFs. (Citation to verify.)
+- *Successive Optimization of Optics and Post-Processing with Differentiable Coherent PSF Operator and Field Information.* arXiv 2412.14603, 2024.
+- DeepLens: differentiable lens modelling library (PyTorch). `PSFNetLens` is a neural, field- and depth-varying PSF surrogate. https://deeplens.readthedocs.io
 - Quad-Based Fourier Transform for Efficient Diffraction Synthesis. EGSR 2018.
 - Csoba & Kunkli. *Efficient Rendering of Ocular Wavefront Aberrations using Tiled PSF Splatting.* CGF 2021.
 - Zeltner et al. *Real-Time Neural Appearance Models.* TOG 2024. This is the distillation pattern we borrow.
@@ -200,3 +210,10 @@ The claim: Real lenses blue light differently at the edge of the frame than at t
 | 2026-10-15 | Python code (reference, baselines, train, eval) lives under `src/neuralglare/` | Importable from experiments, tests and notebooks without path hacks |
 | 2026-10-15 | Gap-study HDRI crops are aimed at each HDRI's brightest region (argmax of an 8×8 box-downsampled luminance), with views at fixed field offsets 0° / (15°, 6°) / (25°, 14°) | Fixed-angle views missed the light in 5 of 12 crops. Fixed field offsets give a controlled sweep of field angle, which is the variable the gap study measures |
 | 2026-10-15 | Gap-study crops are exposure-normalized to a median luminance of 0.18, scaling only (no clamp or tonemap) | Puts the scenes on a comparable exposure while preserving every HDR ratio. The scale factor is logged per crop |
+| 2026-10-16 | Pyramid-bloom baseline (`baselines/pyramid_bloom.py`) reimplements URP 17.6.0 (Unity 6.6) Gaussian bloom in NumPy: non-HQ path, tint white, no dirt. Shader constants still to be checked against the 17.6 `Bloom.shader` | Matches the Unity deployment target, so fitted parameters can be typed into a Volume and checked against a Unity capture. HQ filtering is added once the 17.6 source has been read |
+| 2026-10-16 | Pyramid bloom is fitted as one joint parameter set across the inputs, not per image | A single setting is what a developer would ship. A per-image "oracle" fit remains an optional upper bound |
+| 2026-10-16 | Pyramid fit uses the 12 HDRI crops only; the point grid is reported separately as a diagnostic | With an unweighted mean over images, the point grid's loss (≈0.014 vs ≤0.0022 for every crop) made up about half the objective, so the fit was mostly tuned to a synthetic pattern |
+| 2026-10-16 | Fit loss: mean squared difference of log(x + ε), ε = 1e-3, comparing the composite (image + bloom) to the reference | Losses in log space weight relative error equally from 1e-3 halo to 1e4 sources. ε sits about two orders below the crops' 0.18 median |
+| 2026-10-16 | Fit search: grid over threshold {0, 0.25, 0.5, 0.9}, downscale {half, quarter} and max_iterations 2–8; Nelder–Mead over scatter and log10(intensity) | Threshold and downscale change the mip images and are costly to vary; scatter, intensity and level count are cheap. log10 intensity gives scale-free steps |
+| 2026-10-16 | Fit speed-up: precomputed per-mip basis (bloom = Σ level weight × basis) evaluated on a seeded (seed 0) 1/16 pixel subsample; the best parameters are re-scored on full frames | One 1080p NumPy bloom takes 1.3 s. The basis identity is exact (≤1e-6, covered by tests), and the reported losses come from the full-frame re-score, not the subsample |
+| 2026-10-16 | Fit grid narrowed to threshold {0, 0.9} and downscale half only (supersedes the grid above) | In the first fit, Quarter was about 16× worse in every cell (best loss 0.028 vs 0.0016), and the loss was nearly flat in threshold (0.00164–0.00179 at 8 levels). Keeping 0 (physically motivated) and 0.9 (URP default) cuts the run from about 15 to about 4 minutes |
