@@ -80,10 +80,10 @@ def convolve_diffraction(image, ps):
         for c in range(ps.cols):
             xs = np.nonzero(wx[c])[0]
             x0, x1 = xs[0], xs[-1] + 1
-            sub = image[y0:y1, x0:x1] * (wy[r, y0:y1, None, None] * wx[c, None, x0:x1, None])
+            sub = image[y0:y1, x0:x1].astype(np.float64) * (wy[r, y0:y1, None, None] * wx[c, None, x0:x1, None])
             if not sub.any():
                 continue
-            conv = fftconvolve(sub, ps.psf[r, c], mode="full", axes=(0, 1))
+            conv = fftconvolve(sub, ps.psf[r, c].astype(np.float64), mode="full", axes=(0, 1))
             canvas[y0:y0 + conv.shape[0], x0:x0 + conv.shape[1]] += conv
     out = canvas[p:p + H, p:p + W]
     lost = canvas.sum() - out.sum()
@@ -91,9 +91,12 @@ def convolve_diffraction(image, ps):
 
 
 def convolve_uniform(image, kernel_rgb):
-    """Single kernel everywhere (the uniform FFT-bloom baseline). 'same' crop."""
+    """Single kernel everywhere (the uniform FFT-bloom baseline). 'same' crop.
+    The FFT runs in float64: its round-off is set by the brightest pixel in the frame,
+    and float32 would bury dim pixels next to a 1e5 sun."""
     k = kernel_rgb if kernel_rgb.ndim == 3 else kernel_rgb[..., None]
-    return fftconvolve(image, k, mode="same", axes=(0, 1)).astype(np.float32)
+    out = fftconvolve(image.astype(np.float64), k.astype(np.float64), mode="same", axes=(0, 1))
+    return out.astype(np.float32)
 
 
 def convolve_scatter(image, scatter):

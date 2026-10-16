@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, replace
 import numpy as np
 from scipy.optimize import minimize
 
+from neuralglare.eval.metrics import log_loss
 from neuralglare.io import luminance, read_hdr
 
 URP_VERSION = "URP 17.6.0 (Unity 6.6)"
@@ -208,12 +209,6 @@ def bloom_basis(image, p, n_levels=8):
             b = sample_bilinear(b, *texel_uv(h, w))
         basis.append(b)
     return basis
-
-
-def log_loss(pred, ref, eps):
-    """Mean squared difference of log(x + eps). It weights relative errors equally at
-    every brightness, so the 1e4 sources don't drown out the 1e-3 halo."""
-    return float(np.mean((np.log(pred + eps) - np.log(ref + eps)) ** 2))
 
 
 def sample_pixels(image, ref, basis, rng, fraction):

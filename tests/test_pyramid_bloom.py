@@ -13,7 +13,6 @@ from neuralglare.baselines.pyramid_bloom import (
     effective_kernel,
     gaussian9,
     level_weights,
-    log_loss,
     mip_sizes,
     prefilter,
     pyramid_bloom,
@@ -24,6 +23,7 @@ from neuralglare.baselines.pyramid_bloom import (
     texel_uv,
     upsample_chain,
 )
+from neuralglare.eval.metrics import log_loss
 from neuralglare.io import luminance
 
 

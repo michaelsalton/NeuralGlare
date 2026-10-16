@@ -68,3 +68,6 @@ HDR (high dynamic range)
     - the tail is only visible around sources bright enough to lift it above the rest of the image
     - clamping the brightness would destroy any visible glare, a sun pixel of 50,000 adds about 5 to its neighbours, which is a bright visible halo, so a shadowed wall at 0.05 would go up to 5.05. If the sun was clamped to 1.0 the same tail would get 0.0001 added to it, which is invisible
     - EXR is the standard HDR image file format, float16 reaches up to about 65,504 with roughly 3 significant digits, which is usually enough for scene radiance - PNG or 8-bit formats would clamp and quantise
+
+Scatter terms
+    - 

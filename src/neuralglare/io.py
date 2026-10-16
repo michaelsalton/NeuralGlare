@@ -24,7 +24,7 @@ def read_hdr(path):
         return read_exr(path)
     img = cv2.imread(path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
     if img is None:
-        raise IOError(f"failed to read {path}")
+        raise OSError(f"failed to read {path}")
     return img[..., ::-1].astype(np.float32)
 
 
