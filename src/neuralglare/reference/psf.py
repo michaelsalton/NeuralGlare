@@ -2,16 +2,22 @@
 
 For each node of a field grid spanning the image (corners included) and each
 wavelength:
-    pupil field  E = A(x, y; H) * exp(i 2π W(x, y; H) λ_ref / λ)
+    pupil field  E = A(u; H, λ) * exp(i 2π W(u; H, λ))
     PSF_λ        = |FFT(E)|²,  integrated exactly onto the image pixel grid
 then the wavelengths are combined into RGB with the sensor response.
 
+W (in waves at λ) and the vignetting part of A come from a real-ray trace of the lens
+prescription (lens_trace.py), tabulated over the image-space ray direction u, where
+|u| = 1 is the f-number cone. A is the diaphragm polygon, cut where rays cross the stop,
+times the lens-rim vignetting.
+
 Sampling (why it is correct for every wavelength):
     FFT size M = K·b, where K = kernel size in pixels and b = sub-samples per pixel.
-    The focal-plane sample spacing is λ·F#·D_s / M (D_s = pupil diameter in samples).
+    The focal-plane sample spacing is λ·F#·D_s / M (D_s = 2R, R = samples per unit u).
     Choosing D_s = K·p / (λ·F#) (p = pixel pitch) makes the spacing exactly p / b for
-    every λ, so b×b blocks sum to one image pixel. Nyquist (M ≥ 2·D_s) fixes
-    b ≥ 2p / (λ_min·F#). Red PSFs therefore come out wider than blue ones in pixels,
+    every λ, so b×b blocks sum to one image pixel. Nyquist (M ≥ 2 × pupil extent, and
+    off-axis the pupil reaches |u| = u_max, a little over 1) fixes
+    b ≥ 2p·u_max / (λ_min·F#). Red PSFs therefore come out wider than blue ones in pixels,
     as they should.
 
 Outputs (npz): psf[rows, cols, K, K, 3] (each RGB channel sums to 1), node positions,
@@ -34,64 +40,68 @@ import time
 import cv2
 import numpy as np
 import scipy.fft as sfft
+from scipy.ndimage import map_coordinates
 
 from neuralglare.reference import lens_params as lp
+from neuralglare.reference import lens_trace
 
 
 # ------------------------------------------------------------------ pupil model
-def aperture_mask(x, y, R, ap, H, field_dir):
-    """Polygonal diaphragm (vertices on the circle of radius R) intersected with a
-    shifted vignetting circle. x, y in pupil samples relative to the pupil centre."""
-    n = ap.blades
+def pupil_function(x, y, R, ap, tab, ih, il, field_dir):
+    """Transmission A and wavefront W (waves at this wavelength) on pupil samples x, y
+    (relative to the pupil centre; R samples = one unit of u) for table field ih and
+    wavelength il. The table's meridional axis is laid along field_dir."""
+    fx, fy = field_dir
+    u_mer = (x * fx + y * fy) / R
+    u_sag = (-x * fy + y * fx) / R                      # along perp = (-fy, fx)
+    U, N = float(tab["U"]), tab["opd"].shape[-1]
+    idx = np.stack([(u_mer + U) * ((N - 1) / (2 * U)), (u_sag + U) * ((N - 1) / (2 * U))])
+
+    def sample(name):
+        return map_coordinates(tab[name][ih, il], idx, order=1, mode="nearest")
+
+    W = sample("opd")
     soft = ap.edge_softness
+    vignette = np.clip(sample("vig") * R / soft + 0.5, 0.0, 1.0)   # u → samples
+
+    # Diaphragm: regular polygon, vertices on the stop circle, fixed in image orientation,
+    # evaluated where each ray crosses the stop (stop radii), turned into a distance in
+    # pupil samples by dividing by the local gradient.
+    s_mer, s_sag = sample("stop_y"), sample("stop_x")
+    sx = s_mer * fx - s_sag * fy                        # stop point in image orientation
+    sy = s_mer * fy + s_sag * fx
+    n = ap.blades
     rot = math.radians(ap.rotation_deg)
-    r_in = R * math.cos(math.pi / n)
     proj = np.full(x.shape, -np.inf, np.float32)
     for k in range(n):
-        phi = rot + (2 * k + 1) * math.pi / n          # edge normals
-        np.maximum(proj, x * math.cos(phi) + y * math.sin(phi), out=proj)
-    mask = np.clip((r_in - proj) / soft + 0.5, 0.0, 1.0)
-
-    if H > 0 and ap.vignette_shift > 0:
-        cx = ap.vignette_shift * H * R * field_dir[0]
-        cy = ap.vignette_shift * H * R * field_dir[1]
-        d = np.hypot(x - cx, y - cy)
-        mask *= np.clip((ap.vignette_radius * R - d) / soft + 0.5, 0.0, 1.0)
-    return mask
-
-
-def wavefront_waves(x, y, R, seidel, H, field_dir):
-    """Seidel wavefront in waves at seidel.lambda_ref_um. rho·cos(theta) is the pupil
-    coordinate along the field direction."""
-    rho2 = (x * x + y * y) / (R * R)
-    rc = (x * field_dir[0] + y * field_dir[1]) / R      # rho cos(theta)
-    return (seidel.W040 * rho2 * rho2
-            + seidel.W131 * H * rho2 * rc
-            + seidel.W222 * H * H * rc * rc
-            + seidel.W220 * H * H * rho2)
+        phi = rot + (2 * k + 1) * math.pi / n           # edge normals
+        np.maximum(proj, sx * math.cos(phi) + sy * math.sin(phi), out=proj)
+    inside = math.cos(math.pi / n) - proj               # > 0 inside, in stop radii
+    gy, gx = np.gradient(inside)
+    blades = np.clip(inside / np.maximum(np.hypot(gx, gy), 1e-9) / soft + 0.5, 0.0, 1.0)
+    return blades * vignette, W
 
 
 # --------------------------------------------------------- monochromatic PSF
-def subsamples_per_pixel(cfg):
+def subsamples_per_pixel(cfg, u_max=1.0):
     lam_min = min(cfg.spectral.wavelengths_um)
-    b = math.ceil(2.0 * cfg.camera.pixel_pitch_um / (lam_min * cfg.camera.f_number))
+    b = math.ceil(2.0 * cfg.camera.pixel_pitch_um * u_max / (lam_min * cfg.camera.f_number))
     return b if b % 2 else b + 1    # odd, so pixel bins are centred on the PSF origin
 
 
-def psf_mono(cfg, lam_um, H, field_dir, seidel):
+def psf_mono(cfg, lam_um, il, ih, field_dir, tab):
     """K×K PSF for one wavelength and field position, integrated over pixels, sum 1."""
-    K, b = cfg.kernel_px, subsamples_per_pixel(cfg)
+    K, b = cfg.kernel_px, subsamples_per_pixel(cfg, float(tab["u_max"]))
     M = K * b
-    R = 0.5 * K * cfg.camera.pixel_pitch_um / (lam_um * cfg.camera.f_number)  # pupil radius, samples
+    R = 0.5 * K * cfg.camera.pixel_pitch_um / (lam_um * cfg.camera.f_number)  # samples per unit u
 
     # Evaluate the pupil only on its bounding box, then embed in the M×M field.
-    half = math.ceil(R + 2 * cfg.aperture.edge_softness) + 1
+    half = math.ceil(float(tab["u_max"]) * R + 2 * cfg.aperture.edge_softness) + 1
     c = M // 2
     coords = np.arange(-half, half + 1, dtype=np.float32)
     x, y = np.meshgrid(coords, coords)          # x → image +x (right), y → image +y (down)
-    A = aperture_mask(x, y, R, cfg.aperture, H, field_dir)
-    W = wavefront_waves(x, y, R, seidel, H, field_dir)
-    phase = (2.0 * np.pi * seidel.lambda_ref_um / lam_um) * W
+    A, W = pupil_function(x, y, R, cfg.aperture, tab, ih, il, field_dir)
+    phase = 2.0 * np.pi * W
 
     E = np.zeros((M, M), np.complex64)
     E[c - half:c + half + 1, c - half:c + half + 1] = (A * np.exp(1j * phase)).astype(np.complex64)
@@ -123,30 +133,42 @@ def field_nodes(cfg):
     return nodes
 
 
+def psf_rgb(cfg, tab, H, field_dir, wrgb=None):
+    """K×K×3 PSF at field height H (must be in the table) and direction; each channel
+    sums to 1."""
+    K = cfg.kernel_px
+    wrgb = cfg.spectral.rgb_weights() if wrgb is None else wrgb
+    ih = lens_trace.height_index(tab, H)
+    acc = np.zeros((K, K, 3))
+    for li, lam in enumerate(cfg.spectral.wavelengths_um):
+        acc += psf_mono(cfg, lam, li, ih, field_dir, tab)[..., None] * wrgb[li][None, None, :]
+    return acc / acc.sum(axis=(0, 1), keepdims=True)
+
+
 def compute_psf_grid(cfg, verbose=True):
     rows, cols = cfg.grid
     K = cfg.kernel_px
-    seidel = cfg.seidel.at_f_number(cfg.camera.f_number)
     lams = cfg.spectral.wavelengths_um
     wrgb = cfg.spectral.rgb_weights()                    # (n_lambda, 3)
     psf = np.zeros((rows, cols, K, K, 3), np.float32)
     nodes = field_nodes(cfg)
+    tab = lens_trace.load_or_build(cfg, [n[4] for n in nodes], verbose=verbose)
 
     if verbose:
-        b = subsamples_per_pixel(cfg)
+        b = subsamples_per_pixel(cfg, float(tab["u_max"]))
         print(f"grid {rows}x{cols}, K={K}, {len(lams)} wavelengths, "
-              f"FFT {K * b}^2 (b={b}), F/{cfg.camera.f_number}")
+              f"FFT {K * b}^2 (b={b}), F/{cfg.camera.f_number}, lens {cfg.lens.name}")
     t0 = time.time()
     for i, (r, c, x, y, H, d) in enumerate(nodes):
-        acc = np.zeros((K, K, 3))
-        for li, lam in enumerate(lams):
-            acc += psf_mono(cfg, lam, H, d, seidel)[..., None] * wrgb[li][None, None, :]
-        psf[r, c] = acc / acc.sum(axis=(0, 1), keepdims=True)
+        psf[r, c] = psf_rgb(cfg, tab, H, d, wrgb)
         if verbose:
             print(f"  node {i + 1:>3}/{len(nodes)}  H={H:.2f}  ({time.time() - t0:.0f}s)")
     pos = np.array([[n[2], n[3]] for n in nodes]).reshape(rows, cols, 2)
     Hs = np.array([n[4] for n in nodes]).reshape(rows, cols)
-    return psf, pos, Hs
+    # Exact on-axis PSF (the table always holds H = 0). The grid has no node at the frame
+    # centre, so the blend there is not the on-axis PSF; the centre-PSF baseline uses this.
+    centre = psf_rgb(cfg, tab, 0.0, (0.0, 1.0), wrgb).astype(np.float32)
+    return psf, pos, Hs, centre
 
 
 # ------------------------------------------------------------- scatter halo
@@ -213,8 +235,8 @@ def main():
         print("WARNING: lens_params.py contains PLACEHOLDER values. "
               "Do not report results computed with them.\n")
 
-    psf, pos, Hs = compute_psf_grid(cfg)
-    np.savez_compressed(out, psf=psf, node_pos_px=pos, field_height=Hs,
+    psf, pos, Hs, centre = compute_psf_grid(cfg)
+    np.savez_compressed(out, psf=psf, node_pos_px=pos, field_height=Hs, centre_psf=centre,
                         config=json.dumps(dataclasses.asdict(cfg)),
                         placeholder=lp.PLACEHOLDER)
     preview(psf, out.replace(".npz", "_preview.png"))

@@ -14,6 +14,7 @@ dependencies = [
     "numpy>=2.5.4",
     "opencv-python>=5.0.0.93",
     "openexr>=3.5.2",
+    "rayoptics>=0.9.10",
     "scipy>=1.18.1",
     "slangpy>=0.43.1",
     "torch>=2.11.0",

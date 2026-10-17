@@ -26,9 +26,16 @@ from neuralglare.reference.convolve import (
 )
 
 
-def centre_psf(ps):
-    """The diffraction PSF the reference applies at the frame-centre pixel, (K, K, 3)."""
+def centre_psf_blend(ps):
+    """The diffraction PSF the reference applies at the frame-centre pixel, (K, K, 3): the
+    blend of the surrounding grid nodes, which is not the on-axis PSF."""
     return interpolated_psf(ps, ps.width // 2, ps.height // 2).astype(np.float32)
+
+
+def centre_psf(ps):
+    """The on-axis PSF, (K, K, 3): what a developer would load as the uniform kernel.
+    Exact when the PSF set stores it (psf.py does since 2026-10-17), else the blend."""
+    return ps.centre if ps.centre is not None else centre_psf_blend(ps)
 
 
 def scatter_term(image, ps):

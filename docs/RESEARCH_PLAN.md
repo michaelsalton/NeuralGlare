@@ -26,7 +26,7 @@ Real lens and eye point spread functions (PSFs) change across the image field. O
 
 1. **Neural glare pyramid.** A mip pyramid plus per-level tiny MLPs that reproduce spatially varying, chromatic, physically based glare in real time.
 2. **Differentiable training pipeline.**
-   - A wave-optics reference generator: aperture plus Seidel wavefront, giving per-wavelength PSFs on a field grid and a spatially varying convolution.
+   - A wave-optics reference generator: aperture plus a real-ray-traced wavefront from a published lens prescription, giving per-wavelength PSFs on a field grid and a spatially varying convolution.
    - A differentiable Slang pyramid. One Slang source is used for training and deployment.
 3. **Engine evaluation.**
    - Unity URP deployment, plus Unreal deployment as a stretch goal.
@@ -53,13 +53,16 @@ output = Σ_k PSF_k ⊛ (w_k · HDR)           # spatially varying (our referenc
 PSF from Fourier optics (Fraunhofer), per wavelength λ:
 
 ```
-PSF_λ = | FFT( A(x,y) · exp(i · 2π · W(x,y; H) / λ) ) |²
+PSF_λ = | FFT( A(u; H, λ) · exp(i · 2π · W(u; H, λ) / λ) ) |²
 ```
 
-- **A** is the aperture mask: blades and dust. Off-axis it is intersected with a shifted circle to model vignetting.
-- **W** is the Seidel wavefront, where H is normalized field height and ρ, θ are pupil coordinates:
-  `W = W040 ρ⁴ + W131 H ρ³ cosθ + W222 H² ρ² cos²θ + W220 H² ρ² + W311 H³ ρ cosθ`
+- **u** is the pupil coordinate: the image-space ray direction, scaled so |u| = 1 is the f-number cone. H is normalized field height.
+- **A** is the aperture mask: the diaphragm blades, cut where each ray crosses the stop, times mechanical vignetting from the lens rims. Both come from the ray trace.
+- **W** is the wavefront error from a real-ray trace (rayoptics) of the lens prescription, tabulated per field height and wavelength (`reference/lens_trace.py`). It contains all aberration orders plus axial and lateral colour. Distortion is removed: each PSF sits on its chief ray.
+- A Seidel polynomial (`W = W040 ρ⁴ + W131 H ρ³ cosθ + W222 H² ρ² cos²θ + W220 H² ρ²`) is *not* used. A fast lens balances large third-order terms against higher orders, so third order alone overstates the aberrations several-fold (see decision log).
 - Integrate over about 8–16 wavelengths to get RGB.
+
+**Reference lens:** Nikon AI Nikkor 35mm f/2S, US 3,507,558 Example 1, scaled to f = 36 mm (PhotonsToPhotos transcription). All-spherical, 53° horizontal FOV on a 36 mm-wide sensor, in the 28–40 mm range of cinematic game cameras. Ultra-wide gameplay FOVs (~90° horizontal) are out of scope.
 
 **Aberration magnitudes must come from a real lens design or published lens data, never values tuned for drama.**
 
@@ -143,16 +146,18 @@ The claim: Real lenses blue light differently at the edge of the frame than at t
 
 1. **Test inputs.** `experiments/01_gap_study/make_inputs.py` writes them to `data/inputs/` with a `manifest.json`.
    - A synthetic 7×5 single-pixel point-light grid (intensity 1e4, 6% margin).
-   - 4 Poly Haven HDRIs × 3 views = 12 perspective crops at 1920×1080 with a 60° horizontal FOV. Each view is aimed so the HDRI's brightest region lands at a fixed field offset: `center` 0°, `mid` (15°, 6°) ≈ 16°, `corner` (25°, 14°) ≈ 28°, along the frame diagonal.
+   - 4 Poly Haven HDRIs × 3 views = 12 perspective crops at 1920×1080 with a 53.13° horizontal FOV (the reference lens on a 36 mm-wide sensor; taken from `lens_params`). Each view is aimed so the HDRI's brightest region lands at a fixed field offset: `center` 0°, `mid` (15°, 6°) ≈ 16°, `corner` (25°, 14°) ≈ 28°, along the frame diagonal.
    - Each crop is exposure-normalized to a median luminance of 0.18, with no clamping. The manifest records where the brightest pixel actually landed (`light_px`). Use it, not the nominal offsets, as the field position.
    - `historic_cloister_passage` is an overcast sky with no point source, so it gives only broad, low-contrast glare. Consider replacing it with a sun HDRI.
-2. **PSF set.** Implement `psf.py` from Seidel coefficients and the aperture with vignetting, on an 8×6 field grid.
+2. **PSF set.** Implement `psf.py` from the ray-traced pupil tables (`lens_trace.py`) and the diaphragm, on an 8×6 field grid.
 3. **Reference.** Implement the spatially varying convolution in `convolve.py`. Sanity check: each grid point should match its local PSF.
 4. **Baselines.** Uniform FFT (center and best-fit PSF), plus pyramid bloom **with fitted parameters**.
    - **Unreal check:** load the center PSF as Unreal's Convolution Kernel on one test scene. Confirm its output matches our NumPy uniform-FFT baseline, and record its GPU cost.
 5. **Outputs.** A motivation figure (side-by-side panels plus corner zooms) and a gap table (FLIP / PSNR / energy, center vs edge).
 
-**Decision:**
+**Decision** (criterion fixed 2026-10-17, before the default-config run; computed by `evaluate_gap.py`):
+- The *best uniform kernel* is the FFT baseline (centre or best-fit PSF) with the lowest median HDR-FLIP over all point-grid windows.
+- **Proceed** if, on the point grid with the default config, its median edge FLIP (H ≥ 2/3) is **at least 2×** its median centre FLIP (H < 1/3), and the HDRI crops agree in direction (edge/centre > 1). Numerical settings must pass the convergence check (`convergence.py`, every change < 1%) for the result to count.
 - **Gap large and growing toward the edges:** proceed.
 - **Gap small with realistic aberrations:** pivot. Either make aperture shape and chromatic effects (uniform-kernel quality at pyramid cost) the framing, or switch to camera-matched bloom learned from photographs.
 
@@ -214,6 +219,21 @@ The claim: Real lenses blue light differently at the edge of the frame than at t
 | 2026-10-16 | Pyramid bloom is fitted as one joint parameter set across the inputs, not per image | A single setting is what a developer would ship. A per-image "oracle" fit remains an optional upper bound |
 | 2026-10-16 | Pyramid fit uses the 12 HDRI crops only; the point grid is reported separately as a diagnostic | With an unweighted mean over images, the point grid's loss (≈0.014 vs ≤0.0022 for every crop) made up about half the objective, so the fit was mostly tuned to a synthetic pattern |
 | 2026-10-16 | Fit loss: mean squared difference of log(x + ε), ε = 1e-3, comparing the composite (image + bloom) to the reference | Losses in log space weight relative error equally from 1e-3 halo to 1e4 sources. ε sits about two orders below the crops' 0.18 median |
+| 2026-10-16 | Reference lens: Nikon AI Nikkor 35mm f/2S (US 3,507,558 Ex. 1, via PhotonsToPhotos), 36 mm, operated at f/2.8; camera HFOV becomes 53.13° | All-spherical, documented, citable. Matches the 28–40 mm cinematic game camera and Unreal's CineCamera default. Ultra-wide (~90°) gameplay FOVs excluded: third-order theory and simple prescriptions are unreliable there |
+| 2026-10-16 | Wavefront and vignetting from a real-ray trace (rayoptics 0.9.10) instead of Seidel coefficients | For this lens at f/2, the third-order terms are 15–57 waves but the real error is ~2–3 waves RMS (fifth-order balancing), and a per-field Seidel fit leaves up to 1.3 waves residual. Real rays also give mechanical vignetting from the element rims, and lateral/axial colour |
+| 2026-10-16 | Prescription checked against the patent scan; aperture stop placed 1.9332 mm after r7 (PhotonsToPhotos had 2.0132) | The patent prints every radius, thickness, nd and vd (all match ×36) but not the stop position. The stop is placed so rayoptics reproduces the patent's own coma Seidel sum (II = −0.0572022). Distortion V then matches independently (0.22371 vs 0.2237184), and spherical I (stop-independent) matches to 5 digits |
+| 2026-10-16 | Lens rim diameters stay PhotonsToPhotos estimates | The patent gives only the front element (≈1.3f = 46.8 mm vs 46.58 used). No vignetting measurement of this lens was found (LensTip's AF 35/2D is a different design). Limitation: mechanical vignetting is unvalidated |
+| 2026-10-16 | 7 diaphragm blades, rotation 0° by convention | 7 blades per Ken Rockwell and Kamerastore (no Nikon spec sheet found). Real blade orientation depends on the lens and aperture setting, so it isn't a physical parameter |
+| 2026-10-16 | Veiling-glare scatter switched off (energy_fraction = 0) | No citable glare spread function for this lens. Scatter is spatially invariant, so it isn't what the gap study tests, and an invented wide halo would bias the comparison with pyramid bloom, which fits wide halos well. Revisit with a measurement if the halo is needed |
+| 2026-10-16 | Sensor RGB response: measured Nikon D700 spectral sensitivities (Jiang et al. 2013, Zenodo 3245883), downloaded to data/ with an MD5 check | Real, non-negative curves from a full-frame body that takes this lens. CC BY-NC-SA 4.0, so the data is not committed. CIE→Rec.709 was rejected for now because its negative lobes give negative PSF weights |
+| 2026-10-17 | **Phase 0 result: PROCEED.** Default config, 48 wavelengths, exact point-grid reference: the best uniform kernel (FFT, exact centre PSF) has point-grid median HDR-FLIP 0.048 at the centre and 0.204 at the edge (4.25×, required ≥ 2×). The best-fit uniform kernel gives 2.59×; the HDRI crops agree in direction (4.62×). Fitted pyramid bloom stays near no-bloom everywhere | Convergence: rays 0.000%, table 0.006%, kernel 0.046%, wavelengths 48→96 0.41%, all < 1% (the first three were checked at 12 wavelengths). Details: `outputs/01_gap_study/default/`, `convergence*.json`. Caveats: centre bin has 5 point-grid windows; the pyramid fit ends at its parameter limits; the HDRI references carry grid-interpolation error (open issue above) |
+| 2026-10-17 | Spectral sampling: 48 wavelengths (420–680 nm) in the default config | Convergence check at the corner PSF: 12 → 24 samples changed it 4.5%, 24 → 48 changed it 1.3%. 48 → 96 is verified in `convergence_wavelengths.json` |
+| 2026-10-17 | The point-grid reference is computed **exactly** (`exact_pointgrid.py`: each source × the PSF at its own pixel), and the centre-PSF baseline uses the exact on-axis PSF (`centre_psf` in the PSF npz) | The 6×8 node blend is not the PSF between nodes: 10% (centre and mid cells) to 41% (corner cell) relative L1 against the exact PSF. Every point-grid source sits between nodes, so the interpolated reference would inflate the measured gap. With sparse sources an exact reference is cheap. The centre pixel isn't a node either: the old "centre PSF" was a blend of 4 nodes at H = 0.16 |
+| 2026-10-17 | Open issue: the HDRI-crop references still use the 6×8 interpolated grid (10–41% PSF error between nodes) | Fixing it needs a denser grid (cost ∝ nodes) and/or interpolation in rotated, field-aligned PSFs (the lens is rotationally symmetric; only the diaphragm is not). Until fixed, the crops serve only as the direction check in the decision criterion, and their magnitudes are not reported as results |
+| 2026-10-17 | Proceed/pivot criterion: best uniform kernel's point-grid edge/centre median FLIP ≥ 2×, with the HDRI crops agreeing in direction; numerical settings must change the corner PSF by < 1% when doubled (`convergence.py`) | Fixed before the default-config run so the result can't steer the threshold. Set after the quick-config rehearsal (4.3× centre PSF, 2.1× best-fit), so it is informed by that run, and the best-fit kernel was borderline there. Chosen on the user's delegation; the user may revise it before reading the default results |
+| 2026-10-17 | Gap evaluation (`experiments/01_gap_study/evaluate_gap.py`): metrics in a 2K × 2K window around each light (HDR-FLIP at 67 ppd from a full-frame map, log-MSE, log-PSNR, window energy), medians per H bin (centre < 1/3, mid, edge ≥ 2/3), edge/centre ratios. The point grid is the primary measurement and HDRI crops (at H_measured) are the check | Whole-frame losses mixed scene content with field position and diluted the local effect. The point grid holds the source fixed so only H changes. One FLIP map per frame gives every window the same exposure range |
+| 2026-10-17 | Gap-study views are defined by field height along the diagonal, H ∈ {0, 0.5, 0.85}, replacing the 2026-10-15 angle offsets. Each HDRI's brightest 8×8 region is aimed there exactly (yaw/pitch solved by iteration), and the manifest records the measured `light_px` / `H_measured` (luminance-weighted centroid) | The aiming in the 2026-10-15 decision was never implemented (fixed absolute angles: goegap's sun was out of frame in its center view). With the 53° FOV, the old corner offset (25°, 14°) landed ~10 px from the top edge. H is the variable the study measures and does not depend on the FOV |
+| 2026-10-16 | Pupil tables are sampled over the image-space ray direction u, not the entrance pupil; field heights are pinhole object angles atan(H·half_diag/f) | Off-axis, the lens has strong pupil aberration (the paraxial pupil centre misses the stop centre by 32% of its radius at the corner), and the Fraunhofer FFT needs direction cosines. Pinhole angles match make_inputs' projection. rayoptics' relative image-height fields scale the angle linearly, which put mid-field nodes up to 9% off |
 | 2026-10-16 | Fit search: grid over threshold {0, 0.25, 0.5, 0.9}, downscale {half, quarter} and max_iterations 2–8; Nelder–Mead over scatter and log10(intensity) | Threshold and downscale change the mip images and are costly to vary; scatter, intensity and level count are cheap. log10 intensity gives scale-free steps |
 | 2026-10-16 | Fit speed-up: precomputed per-mip basis (bloom = Σ level weight × basis) evaluated on a seeded (seed 0) 1/16 pixel subsample; the best parameters are re-scored on full frames | One 1080p NumPy bloom takes 1.3 s. The basis identity is exact (≤1e-6, covered by tests), and the reported losses come from the full-frame re-score, not the subsample |
 | 2026-10-16 | Fit grid narrowed to threshold {0, 0.9} and downscale half only (supersedes the grid above) | In the first fit, Quarter was about 16× worse in every cell (best loss 0.028 vs 0.0016), and the loss was nearly flat in threshold (0.00164–0.00179 at 8 levels). Keeping 0 (physically motivated) and 0.9 (URP default) cuts the run from about 15 to about 4 minutes |

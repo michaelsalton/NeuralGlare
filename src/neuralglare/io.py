@@ -15,6 +15,8 @@ def read_exr(path):
         ch = f.channels()
         if "RGB" in ch:
             return ch["RGB"].pixels.astype(np.float32)
+        if "RGBA" in ch:                       # bindings group R,G,B,A; drop alpha
+            return ch["RGBA"].pixels[..., :3].astype(np.float32)
         return np.stack([ch[c].pixels for c in ("R", "G", "B")], -1).astype(np.float32)
 
 
@@ -32,8 +34,12 @@ def luminance(rgb):
     return 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
 
 
+def display(rgb, exposure=1.0):
+    """Reinhard + gamma 2.2 to [0, 1] RGB, for eyeballing and figures only. Never data."""
+    x = np.maximum(rgb * exposure, 0)
+    return np.clip(x / (1.0 + x), 0, 1) ** (1 / 2.2)
+
+
 def write_preview(path, rgb, exposure=1.0):
-    """Reinhard + gamma 2.2, for eyeballing only. Never used as data."""
-    x = rgb * exposure
-    x = np.clip(x / (1.0 + x), 0, 1) ** (1 / 2.2)
-    cv2.imwrite(path, (x[..., ::-1] * 255).astype(np.uint8))
+    """Reinhard + gamma 2.2 PNG, for eyeballing only. Never used as data."""
+    cv2.imwrite(path, (display(rgb, exposure)[..., ::-1] * 255).astype(np.uint8))

@@ -17,12 +17,13 @@ convolutions run on crops and are cheap. Light spread past the frame edge is los
 
 Also exposes convolve_uniform() for the uniform-kernel FFT baseline.
 
-Usage (from the repo root):
+Usage (from the repo root; --inputs globs are expanded here, so quote them in any shell):
     uv run python -m neuralglare.reference.convolve --psf data/psf/psf_quick.npz \
-        --inputs data/inputs/*.exr --out data/reference --check
+        --inputs "data/inputs/*.exr" --out data/reference --check
 """
 
 import argparse
+import glob
 import json
 import os
 
@@ -46,6 +47,7 @@ class PSFSet:
         self.width = self.cfg["camera"]["width_px"]
         self.height = self.cfg["camera"]["height_px"]
         self.scatter = lp.Scatter(**self.cfg["scatter"])
+        self.centre = d["centre_psf"].astype(np.float32) if "centre_psf" in d.files else None
 
 
 def hat_weights(n_px, n_nodes):
@@ -149,12 +151,15 @@ def check_point_sources(image, diff, ps, max_points=500):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--psf", required=True, help="npz from reference/psf.py")
-    ap.add_argument("--inputs", nargs="+", required=True, help="input EXR files")
+    ap.add_argument("--inputs", nargs="+", required=True, help="input EXRs; globs are expanded")
     ap.add_argument("--out", default="data/reference")
     ap.add_argument("--check", action="store_true", help="verify on sparse point-source inputs")
     ap.add_argument("--save-components", action="store_true",
                     help="also write the diffraction and scatter terms separately")
     args = ap.parse_args()
+    paths = sorted(f for pattern in args.inputs for f in glob.glob(pattern))
+    if not paths:
+        raise SystemExit(f"no input files match {args.inputs}")
 
     ps = PSFSet(args.psf)
     if ps.placeholder:
@@ -163,7 +168,7 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     report = {"psf": args.psf, "placeholder": ps.placeholder, "images": {}}
 
-    for path in args.inputs:
+    for path in paths:
         name = os.path.splitext(os.path.basename(path))[0]
         image = read_hdr(path)
         if image.shape[:2] != (ps.height, ps.width):

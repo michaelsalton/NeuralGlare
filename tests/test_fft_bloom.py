@@ -4,7 +4,14 @@ import numpy as np
 import pytest
 import torch
 
-from neuralglare.baselines.fft_bloom import centre_psf, conv_same_torch, fft_bloom, scatter_term, fit_uniform_kernel 
+from neuralglare.baselines.fft_bloom import (
+    centre_psf,
+    centre_psf_blend,
+    conv_same_torch,
+    fft_bloom,
+    fit_uniform_kernel,
+    scatter_term,
+)
 from neuralglare.reference.convolve import PSFSet, convolve_uniform, reference
 
 PSF_PATH = Path(__file__).parent.parent / "data" / "psf" / "psf_quick.npz"
@@ -35,9 +42,9 @@ def test_centre_psf_is_normalised(ps):
 
 @needs_psf
 def test_centred_point_matches_reference(ps, centre_delta):
-    # At the frame centre the reference applies exactly the centre PSF, so a uniform
-    # kernel equal to it must reproduce the reference there.
-    out = fft_bloom(centre_delta, centre_psf(ps), ps)
+    # At the frame centre the reference applies exactly the blend of the nodes around
+    # it, so a uniform kernel equal to that blend must reproduce the reference there.
+    out = fft_bloom(centre_delta, centre_psf_blend(ps), ps)
     ref = reference(centre_delta, ps)[0]
     np.testing.assert_allclose(out, ref, atol=1e-6)
 

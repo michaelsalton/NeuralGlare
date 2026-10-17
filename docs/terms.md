@@ -45,7 +45,7 @@ Kernel (in the bloom context)
 
 Unreal's standard bloom
     - Default bloom type, the classic mip-pyramid bloom
-    - The HDR scene is repeatedly halved in resolution giving 6 levels, each level is blurred with a Gaussian bllue, then the mips are upsampled and combined and the result is added onto the scene
+    - The HDR scene is repeatedly halved in resolution giving 6 levels, each level is blurred with a Gaussian blur, then the mips are upsampled and combined and the result is added onto the scene
     - ~24 parameters
 
 Unreal's FFT Bloom
@@ -69,5 +69,18 @@ HDR (high dynamic range)
     - clamping the brightness would destroy any visible glare, a sun pixel of 50,000 adds about 5 to its neighbours, which is a bright visible halo, so a shadowed wall at 0.05 would go up to 5.05. If the sun was clamped to 1.0 the same tail would get 0.0001 added to it, which is invisible
     - EXR is the standard HDR image file format, float16 reaches up to about 65,504 with roughly 3 significant digits, which is usually enough for scene radiance - PNG or 8-bit formats would clamp and quantise
 
-Scatter terms
+Scatter / veiling glare
+    - faint haze light scattering spreads over the whole image
+    - can't be computed from a prescription, has to come from measurements
+
+Spectral response
+    - 
+
+Vignetting
+    - Comes from the prescription
+
+Parapixel
+    - 
+
+Seidel
     - 

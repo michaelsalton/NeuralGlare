@@ -2,7 +2,7 @@
 
 **Neural spatially varying glare at pyramid cost.**
 
-NeuralGlare: the standard bloom mip pyramid, with tiny MLPs in the upsample passes. It is trained to reproduce **spatially varying, physically based glare** (lens diffraction, Seidel aberrations, mechanical vignetting, chromatic spread) at roughly the cost of ordinary pyramid bloom.
+NeuralGlare: the standard bloom mip pyramid, with tiny MLPs in the upsample passes. It is trained to reproduce **spatially varying, physically based glare** (lens diffraction, real-ray-traced aberrations, mechanical vignetting, chromatic spread) at roughly the cost of ordinary pyramid bloom.
 
 The network is written once in **Slang**:
 - trained from Python with **SlangPy**;
@@ -32,8 +32,9 @@ NeuralGlare/
 │   └── glare.slang          # upsample passes calling the MLPs
 ├── src/neuralglare/         # Python package (import as `neuralglare.*`)
 │   ├── reference/
-│   │   ├── psf.py           # aperture + Seidel wavefront → PSF(λ, field position)
-│   │   ├── lens_params.py   # aberration coefficients (sourced, cited)
+│   │   ├── psf.py           # diaphragm + ray-traced wavefront → PSF(λ, field position)
+│   │   ├── lens_trace.py    # real-ray trace of the lens → pupil tables (cached in data/lens/)
+│   │   ├── lens_params.py   # camera, lens prescription, scatter, spectrum (sourced, cited)
 │   │   └── convolve.py      # spatially varying convolution → ground truth
 │   ├── baselines/
 │   │   ├── pyramid_bloom.py # NumPy reimplementation of URP bloom (+ parameter fitting)
