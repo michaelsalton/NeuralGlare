@@ -1,0 +1,6 @@
+# Train/test split by scene: the only place it is defined (CLAUDE.md, Determinism).
+# A scene's every view (center, mid, corner) stays on one side of the split.
+
+[phase1]
+train = ["cobblestone_street_night_4k", "ferndale_studio_12_4k", "historic_cloister_passage_4k"]
+test = ["goegap_road_4k"]   # sun at 2.7e5: brighter than any training frame

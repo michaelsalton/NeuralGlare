@@ -73,16 +73,17 @@ PSF_λ = | FFT( A(u; H, λ) · exp(i · 2π · W(u; H, λ) / λ) ) |²
 ```
 HDR frame ──► downsample chain (fixed, as URP bloom) ──► mip_0 … mip_N
                                                             │
-         upsample pass k:  out_k = MLP_k( mip_k taps, up(out_{k+1}),
-                                          screen position, luminance, … )
+         upsample pass k:  w     = MLP_k( screen position )
+                           out_k = Σ_i w_i · tap_i      taps: mip_k (± offsets), up(out_{k+1})
                                                             │
                                          glare image ──► composite with HDR
 ```
 
 - The downsample pyramid gives a frame-sized receptive field almost for free.
+- **The MLPs predict filter weights, not colours.** HDR values pass only through the weighted sum, so the output is linear in scene light by construction, as real glare is. The weights form an interpretable PSF field (see decision log, 2026-10-25).
+- **Screen position is the only MLP input,** and it's what lets the model represent spatial variation. Content-dependent inputs (e.g. luminance) are excluded because they would break linearity.
 - **MLPs are tiny,** a few hundred multiply-adds per pixel per level. They use the **scalar path in plain HLSL**, so no cooperative vectors or tensor cores are needed in Unity.
-- **Screen-position input** is what lets the model represent spatial variation.
-- Weights live in a `StructuredBuffer`.
+- Network weights live in a `StructuredBuffer`.
 
 ---
 
@@ -165,13 +166,32 @@ The claim: Real lenses blue light differently at the edge of the frame than at t
 - Train a Slang MLP pyramid to reproduce plain Gaussian bloom. This is the sanity check.
 - Compile to HLSL and confirm Unity output matches Python output on the same frame.
 
+Goals
+- Slang MLP Pyramid can learn on plain Gaussian bloom.
+- The HLSL compiled from the Slang course gives the same result in Unity as it does in Python.
+
+- Mainly a pipeline test
+- MLP network outputs filter weights, no colors.
+- Output is a weighted sum of the input light, doubling the input doubles the output
+
+pyramid.slang
+- Fixed URP downsample chain: prefilter plus the 9-tap H and 5-tap V Gaussian - no ML.
+- Matches the mips from pyramid_bloom.py
+
+mlp.slang
+- a tiny scaler MLP that reads all its weights from one flat buffer with offsets
+
+glare.slang
+- Upsample pass that predicts the weights.
+- Each level converges to URP's scatter weights
+
 ### Phase 2: Neural glare model
 - Train against the spatially varying reference.
 - Ablations: MLP size, which levels get MLPs, input features, and the screen-position encoding.
 
 ### Phase 3: Engine deployment and timings
 - **Unity (required):** run in the URP renderer feature.
-- **Unreal (required):** time the convolution-bloom baseline on the same scenes and GPUs.
+- **Unreal (required):** time the convolution-bloom baseline on the same scenes and GPUs. First do the deferred Phase 0 check: confirm that its output with the centre PSF matches the NumPy uniform-FFT baseline.
 - **Unreal deployment (stretch):** the NeuralGlare plugin from the same generated HLSL. Do this only if Unity is finished early; otherwise list it as future work.
 - Timings with RenderDoc / Nsight at 1080p, 1440p and 4K on multiple GPUs, using the same GPUs and resolutions in both engines.
 
@@ -227,6 +247,7 @@ The claim: Real lenses blue light differently at the edge of the frame than at t
 | 2026-10-16 | Veiling-glare scatter switched off (energy_fraction = 0) | No citable glare spread function for this lens. Scatter is spatially invariant, so it isn't what the gap study tests, and an invented wide halo would bias the comparison with pyramid bloom, which fits wide halos well. Revisit with a measurement if the halo is needed |
 | 2026-10-16 | Sensor RGB response: measured Nikon D700 spectral sensitivities (Jiang et al. 2013, Zenodo 3245883), downloaded to data/ with an MD5 check | Real, non-negative curves from a full-frame body that takes this lens. CC BY-NC-SA 4.0, so the data is not committed. CIE→Rec.709 was rejected for now because its negative lobes give negative PSF weights |
 | 2026-10-17 | **Phase 0 result: PROCEED.** Default config, 48 wavelengths, exact point-grid reference: the best uniform kernel (FFT, exact centre PSF) has point-grid median HDR-FLIP 0.048 at the centre and 0.204 at the edge (4.25×, required ≥ 2×). The best-fit uniform kernel gives 2.59×; the HDRI crops agree in direction (4.62×). Fitted pyramid bloom stays near no-bloom everywhere | Convergence: rays 0.000%, table 0.006%, kernel 0.046%, wavelengths 48→96 0.41%, all < 1% (the first three were checked at 12 wavelengths). Details: `outputs/01_gap_study/default/`, `convergence*.json`. Caveats: centre bin has 5 point-grid windows; the pyramid fit ends at its parameter limits; the HDRI references carry grid-interpolation error (open issue above) |
+| 2026-10-25 | Phase 0 Unreal check (centre PSF as Convolution Kernel: confirm the output matches the NumPy uniform-FFT baseline, record its GPU cost) deferred to Phase 3 | It doesn't affect the proceed/pivot decision, which uses only the NumPy baselines. It needs the same Unreal scene, capture and timing setup as the Phase 3 convolution-bloom timings, so building that setup once avoids doing the work twice. Phase 1 doesn't depend on it |
 | 2026-10-17 | Spectral sampling: 48 wavelengths (420–680 nm) in the default config | Convergence check at the corner PSF: 12 → 24 samples changed it 4.5%, 24 → 48 changed it 1.3%. 48 → 96 is verified in `convergence_wavelengths.json` |
 | 2026-10-17 | The point-grid reference is computed **exactly** (`exact_pointgrid.py`: each source × the PSF at its own pixel), and the centre-PSF baseline uses the exact on-axis PSF (`centre_psf` in the PSF npz) | The 6×8 node blend is not the PSF between nodes: 10% (centre and mid cells) to 41% (corner cell) relative L1 against the exact PSF. Every point-grid source sits between nodes, so the interpolated reference would inflate the measured gap. With sparse sources an exact reference is cheap. The centre pixel isn't a node either: the old "centre PSF" was a blend of 4 nodes at H = 0.16 |
 | 2026-10-17 | Open issue: the HDRI-crop references still use the 6×8 interpolated grid (10–41% PSF error between nodes) | Fixing it needs a denser grid (cost ∝ nodes) and/or interpolation in rotated, field-aligned PSFs (the lens is rotationally symmetric; only the diaphragm is not). Until fixed, the crops serve only as the direction check in the decision criterion, and their magnitudes are not reported as results |
@@ -240,3 +261,8 @@ The claim: Real lenses blue light differently at the edge of the frame than at t
 | 2026-10-16 | Uniform FFT baseline (`baselines/fft_bloom.py`) = (1 − η)·I ⊛ K + η·I ⊛ S, with the reference's exact scatter term; only the diffraction kernel K is uniform. Two variants: K = centre PSF (interpolated at the frame centre) and K = best-fit PSF | The only difference from the reference is then the spatial variation of the diffraction PSF, which is what the gap study isolates. Leaving out scatter would also remove the long tail and confound the comparison |
 | 2026-10-16 | Best-fit uniform PSF is free-form: every K×K×3 kernel texel is a parameter, softmax over texels per channel (non-negative, sums to 1), initialised from the centre PSF, fitted with Adam in PyTorch on the GPU, using the same log loss (ε = 1e-3) and the same 12 HDRI crops as the pyramid fit. Baseline outputs are still computed with the NumPy `convolve_uniform` path | A free-form kernel is the strongest uniform baseline (an upper bound for any single kernel, including any texture given to Unreal). A blend of node PSFs or a parametric kernel could be beaten by a better kernel |
 | 2026-10-16 | All FFT convolutions (reference in `convolve.py`, baselines, and the PyTorch fit) run in float64; results are still stored as float32 EXR. References regenerated | FFT round-off spreads over every pixel in proportion to the brightest content in the frame. In float32, a 4e5 sun put ≈0.04 of noise on every pixel, which was half or more of the measured centre-FFT loss on sun crops (noise floor up to 7.8e-6 vs 1.2e-5 measured) and produced negative values. Covered by `tests/test_convolve.py` |
+| 2026-10-25 | Phase 1 sanity target: the NumPy URP pyramid bloom (`baselines/pyramid_bloom.py`) with threshold 0 | With threshold 0, URP bloom is linear and exactly representable by the pyramid: each upsample is `lerp(mip_k, up(out_{k+1}), s)`, with s = 0.05 + 0.9 · scatter. The correct answer is known, so a residual error indicates a pipeline bug, not a capacity limit |
+| 2026-10-25 | The per-level MLPs predict **filter weights, not colours**: `w = MLP_k(uv)`, `out_k = Σ_i w_i · tap_i`. The MLP input is screen position only; HDR values go only through the weighted sum. Phase 1 uses 2 taps (`mip_k`, `up(out_{k+1})`), whose exact answer is w = (1 − s, s). Supersedes the "mip taps, luminance" MLP inputs in the §4 sketch | Glare is linear in scene light, and a weighted sum is linear by construction for any MLP output, so the network never has to learn linearity across 8 orders of magnitude of HDR, and never sees HDR values as inputs. The weights are an interpretable, plottable PSF field, the same structure as the spatially varying reference (cf. kernel-predicting networks, Bako et al. 2017). Content-dependent weights would break linearity, so they are excluded. Open for Phase 2: taps per level and per-channel weights (they set which kernel shapes are reachable: coma, spikes, colour fringing); a weight sign/normalisation constraint (energy conservation); the gather (receiver-side) vs scatter (source-side) error; and, because the weights depend only on uv, whether to bake them to a per-resolution weight texture for runtime (this affects how the timings are framed) |
+| 2026-10-25 | Training toolchain: slangpy 0.43.1 on the **Vulkan** backend, called on torch tensors through slangpy's **Python torch fallback** (`spy.set_allow_torch_fallback(True)`). Torch owns the loss, the chaining between kernels and the optimiser (Adam); Slang owns the per-pixel kernels and their derivatives. Standalone `slangc` is **2026.12**, the exact Slang version slangpy 0.43.1 is built against (`SGL_SLANG_VERSION` in slangpy's `external/CMakeLists.txt`), installed at `D:\Development\Libraries\Slang`. Verified by `tests/test_slang_torch.py` (gradients match a hand derivation; Adam recovers known weights) | The CUDA backend fails at device creation on this machine (RTX 2070, driver 621.01; cause not found). The native bridge (`slangpy-torch` 0.7.0) is a source build against the installed torch and needs `--no-build-isolation` plus a C++ toolchain; the fallback is exact, only slower, which is acceptable at Phase 1 data sizes. Revisit both if training speed becomes a bottleneck. Matching `slangc` to slangpy's compiler keeps the engine HLSL and the trained kernels from the same compiler version |
+| 2026-10-25 | `slang/pyramid.slang`: URP's downsample chain (bilinear prefilter, 9-tap BlurH, 5-tap BlurV) **without threshold or clamp**. Passes are generic over an `IImage` interface (`size`, `load`): slangpy tensors in training (`slang/train_pyramid.slang`), `Texture2D` in the engine wrappers. Bilinear filtering is done by hand from 4 loads, not with a hardware sampler. Parity with the NumPy baseline (`tests/test_pyramid.py`) is measured against the brightest source texel in each tap footprint, with a tolerance of 4 float32 ulps of the image size | One source for training and engines; generics specialise away, so the HLSL has no interfaces (checked with `slangc` 2026.12). Manual bilinear gives identical arithmetic on both sides (hardware samplers resolve blend weights to ~1/256 and differ by vendor) and is differentiable for the upsample in training. HDR rule: no clamp or threshold. NumPy computes coordinates in float64 and the shader in float32, so a per-pixel relative tolerance fails next to bright texels (3.4e-3) for reasons that are not bugs; the footprint-relative error is 1.9e-5 against a 6.1e-5 bound |
+| 2026-10-25 | `slang/mlp.slang`: scalar MLP, generic over an `IParams` interface (`[Differentiable] float get(int)`). All of a network's parameters sit in one flat float array: per layer, weights `[out][in]` row-major, then biases `[out]`, with an offset per network so several share one buffer. This layout is the weight file format and the engines' `StructuredBuffer<float>`. Training reads it through a slangpy `DiffTensor` (gradients land in the torch tensor's `.grad`). Phase 1 network: uv (2) → 16 → leaky ReLU (0.01) → 2, no input encoding. Verified against an independent PyTorch MLP (`tests/test_mlp.py`: forward pass and gradients agree to ~1e-7) | Same one-source pattern as `IImage`; `slangc` emits plain HLSL with no cooperative-vector or LinAlg intrinsics. A flat layout maps 1:1 to a structured buffer and a binary file in both engines. `DiffTensor` does the gradient atomics that `neural_image` did by hand; forward + backward over 518k points takes ~66 ms through the torch fallback. No frequency encoding: the PSF field varies smoothly, and the Phase 1 answer is a constant. Encoding and width belong to the Phase 2 ablations |
