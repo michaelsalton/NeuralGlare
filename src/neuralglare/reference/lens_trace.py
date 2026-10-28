@@ -8,7 +8,7 @@ aberrated. We trace real rays instead and hand psf.py the wavefront itself.
 For each field height H and wavelength λ, a grid of rays is traced (unclipped) from the
 entrance pupil, then resampled onto a regular grid of the pupil coordinate the Fraunhofer
 FFT needs, the image-space ray direction:
-    u = (α - α_chief) · 2·F#        α = transverse direction cosines in image space
+    u = (a - a_chief) · 2·F#        a = transverse direction cosines in image space
 so |u| = 1 is the f-number cone on axis. The chief ray is the ray through the centre of
 the stop. Axis 0 of every table is meridional (from the image centre towards the field
 point, = image +field_dir in psf.py), axis 1 sagittal.
@@ -17,7 +17,7 @@ Tables, float32 [n_H, n_λ, N, N], over u in [-U, U]:
   opd     wavefront error in waves at λ, w.r.t. a sphere centred on the chief ray's image
           point at the reference wavelength. Lateral colour stays in it as a tilt and
           axial colour as defocus; distortion is dropped (PSFs sit on the chief ray).
-          A ray lands at +dOPD/dα from that point (tests/test_lens_trace.py checks this).
+          A ray lands at +dOPD/da from that point (tests/test_lens_trace.py checks this).
   stop_x, stop_y   where the ray crosses the aperture stop, in stop radii (stop_y
           meridional). psf.py cuts the diaphragm blades there, where they really are.
   vig     signed distance in u to the nearest lens rim other than the stop; > 0 means the

@@ -14,6 +14,7 @@ from scipy.optimize import minimize
 
 from neuralglare.eval.metrics import log_loss
 from neuralglare.io import luminance, read_hdr
+from neuralglare.paths import REFS, RUNS, run_dir
 
 URP_VERSION = "URP 17.6.0 (Unity 6.6)"
 DOWNSCALE_SHIFT = {"half": 1, "quarter": 2}
@@ -263,17 +264,18 @@ def fit(pairs, thresholds=(0.0, 0.9), downscales=("half",),
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--run", choices=RUNS, default="quick",
+                    help="config: picks the references and output folder")
     ap.add_argument("--inputs", nargs="+", required=True, help="input EXRs; globs are expanded")
-    ap.add_argument("--refs", default="data/reference")
-    ap.add_argument("--out", default="outputs/01_gap_study/pyramid_fit.json")
     ap.add_argument("--eps", type=float, default=1e-3)
     args = ap.parse_args()
+    refs = REFS[args.run]
 
     paths = sorted(f for pattern in args.inputs for f in glob.glob(pattern))
     names = [os.path.splitext(os.path.basename(f))[0] for f in paths]
-    pairs = [(read_hdr(f), read_hdr(os.path.join(args.refs, f"{n}_ref.exr")))
+    pairs = [(read_hdr(f), read_hdr(os.path.join(refs, f"{n}_ref.exr")))
              for f, n in zip(paths, names)]
-    with open(os.path.join(args.refs, "reference_report.json")) as fh:
+    with open(os.path.join(refs, "reference_report.json")) as fh:
         placeholder = json.load(fh)["placeholder"]
     if placeholder:
         print("WARNING: references use PLACEHOLDER lens parameters. Do not report these fits.\n")
@@ -291,12 +293,12 @@ def main():
               f"(no bloom {per_image[n]['loss_no_bloom']:.4f}), "
               f"energy {per_image[n]['energy_relative']:+.1%}")
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    with open(args.out, "w") as fh:
-        json.dump({"urp_version": URP_VERSION, "numpy": np.__version__,
+    out = f"{run_dir('01_gap_study', args.run, 'fits')}/pyramid_fit.json"
+    with open(out, "w") as fh:
+        json.dump({"run": args.run, "urp_version": URP_VERSION, "numpy": np.__version__,
                    "placeholder_references": placeholder, "inputs": names, "eps": args.eps,
                    "best": asdict(best), "grid": table, "per_image": per_image}, fh, indent=2)
-    print(f"\nbest: {best}\nwrote {args.out}")
+    print(f"\nbest: {best}\nwrote {out}")
 
 
 if __name__ == "__main__":

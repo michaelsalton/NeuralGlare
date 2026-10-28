@@ -1,4 +1,5 @@
 // slangpy entry points for glare.slang. Training side only.
+
 import slangpy;
 import pyramid;
 import mlp;

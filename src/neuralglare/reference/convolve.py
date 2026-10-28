@@ -17,6 +17,17 @@ convolutions run on crops and are cheap. Light spread past the frame edge is los
 
 Also exposes convolve_uniform() for the uniform-kernel FFT baseline.
 
+Convolve
+- A Gaussian blur is a convolution
+    - For every output pixel take the neighbouring input pixels, multiply each by a weight from a small
+        grid (the kernel) and add them up out(p) = Σ_q  kernel(p - q) · in(q)
+- ⊛ means "convolve with"
+- Physically, convolving an image with a lens's PSF gives what the lens does to the image
+- Every bright pixel spreads its energy out in the shape of the PSF, and all those splats add up
+- A sun at 1e5 splats its PSF hard enough that the faint outer rings and diffraction spikes become visible
+- Gather: each output pixel collects from its neighbours, this is how iw would be done in a fragment shader
+- Scatter: each input pixel stamps a scaled copy of the kernel onto the output
+
 Usage (from the repo root; --inputs globs are expanded here, so quote them in any shell):
     uv run python -m neuralglare.reference.convolve --psf data/psf/psf_quick.npz \
         --inputs "data/inputs/*.exr" --out data/reference --check

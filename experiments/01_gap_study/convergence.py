@@ -11,7 +11,8 @@ frame corner (H = 1, where aberrations are largest) is recomputed. The change is
 Separately, the node grid: the exact PSF at the centre of the corner cell against the
 bilinear blend of its 4 node PSFs, which is what convolve.py applies there.
 
-Target: every change below TOLERANCE. Writes outputs/01_gap_study/convergence.json.
+Target: every change below TOLERANCE. Writes outputs/01_gap_study/default/checks/
+convergence.json.
 
 Usage:
     uv run python experiments/01_gap_study/convergence.py
@@ -20,12 +21,12 @@ Usage:
 import argparse
 import json
 import math
-import os
 import time
 from dataclasses import replace
 
 import numpy as np
 
+from neuralglare.paths import run_dir
 from neuralglare.reference import lens_params as lp
 from neuralglare.reference import lens_trace
 from neuralglare.reference.convolve import hat_weights
@@ -48,7 +49,8 @@ def field_at(cfg, x, y):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default="outputs/01_gap_study/convergence.json")
+    ap.add_argument("--out", default="convergence.json",
+                    help="file name in the default run's checks/ folder")
     ap.add_argument("--only", nargs="+", default=None,
                     choices=["rays", "table_px", "wavelengths", "kernel_px", "grid"],
                     help="run only these checks")
@@ -116,12 +118,12 @@ def main():
     if "kernel_px_energy_outside" in results:
         print(f"energy outside the default kernel: {results['kernel_px_energy_outside']:.3%}")
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    with open(args.out, "w") as fh:
+    out = f"{run_dir('01_gap_study', 'default', 'checks')}/{args.out}"   # checks lp.DEFAULT
+    with open(out, "w") as fh:
         json.dump({"tolerance": TOLERANCE, "defaults": defaults, "relative_l1": results,
                    "verdict": verdict, "corner_H": corner[4],
                    "cell_centre_px": [xm, ym], "cell_centre_H": Hm}, fh, indent=2)
-    print(f"wrote {args.out}")
+    print(f"wrote {out}")
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ Sampling (why it is correct for every wavelength):
     FFT size M = K·b, where K = kernel size in pixels and b = sub-samples per pixel.
     The focal-plane sample spacing is λ·F#·D_s / M (D_s = 2R, R = samples per unit u).
     Choosing D_s = K·p / (λ·F#) (p = pixel pitch) makes the spacing exactly p / b for
-    every λ, so b×b blocks sum to one image pixel. Nyquist (M ≥ 2 × pupil extent, and
+    every λ, so bxb blocks sum to one image pixel. Nyquist (M ≥ 2 x pupil extent, and
     off-axis the pupil reaches |u| = u_max, a little over 1) fixes
     b ≥ 2p·u_max / (λ_min·F#). Red PSFs therefore come out wider than blue ones in pixels,
     as they should.

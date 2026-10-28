@@ -1,5 +1,14 @@
 """Measured camera spectral sensitivities (Jiang et al. 2013).
 
+Loads measured camera spectral sensitivity curve
+    - How strongly a real camera's R, G, and B pixels respond to light at each wavelength
+    - Reference renderer uses them to turn a per-wavelength PSF into an RGB PSF
+
+- The reference PSF is computed spectrally
+- Diffraction and chromatic abberation depend on wavelength, so the lens is simulated at 48 wavelengths from 420 to 680nm
+- This gives 48 grayscale PSFs
+- But the renderer works in RGB, so those 48 slices have to be collapsed into 3 channels
+
 Source: J. Jiang, D. Liu, J. Gu, S. Süsstrunk, "What is the Space of Spectral Sensitivity
 Functions for Digital Color Cameras?", WACV 2013. Database of 28 cameras, 400-720 nm in
 10 nm steps, from Zenodo record 3245883 (doi:10.5281/zenodo.3245883).

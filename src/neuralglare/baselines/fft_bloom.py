@@ -18,6 +18,7 @@ import torch
 
 from neuralglare.eval.metrics import log_loss
 from neuralglare.io import read_hdr
+from neuralglare.paths import REFS, RUNS, psf_path, run_dir
 from neuralglare.reference.convolve import (
     PSFSet,
     convolve_scatter,
@@ -119,26 +120,26 @@ def evaluate(names, pairs, scatters, kernel, ps, eps):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--psf", default="data/psf/psf_quick.npz")
+    ap.add_argument("--run", choices=RUNS, default="quick",
+                    help="config: picks the PSF, references and output folder")
     ap.add_argument("--inputs", nargs="+", required=True, help="input EXRs; globs are expanded")
-    ap.add_argument("--refs", default="data/reference")
-    ap.add_argument("--out", default="outputs/01_gap_study/fft_bloom.json")
     ap.add_argument("--eps", type=float, default=1e-3)
     ap.add_argument("--steps", type=int, default=200)
     ap.add_argument("--lr", type=float, default=0.1)
     args = ap.parse_args()
+    psf, refs = psf_path(args.run), REFS[args.run]
 
-    with open(os.path.join(args.refs, "reference_report.json")) as fh:
+    with open(os.path.join(refs, "reference_report.json")) as fh:
         ref_report = json.load(fh)
-    if os.path.normpath(ref_report["psf"]) != os.path.normpath(args.psf):
-        raise ValueError(f"references were made with {ref_report['psf']}, not {args.psf}")
-    ps = PSFSet(args.psf)
+    if os.path.normpath(ref_report["psf"]) != os.path.normpath(psf):
+        raise ValueError(f"references were made with {ref_report['psf']}, not {psf}")
+    ps = PSFSet(psf)
     if ps.placeholder:
         print("WARNING: PLACEHOLDER lens parameters. Do not report these results.\n")
 
     paths = sorted(f for pattern in args.inputs for f in glob.glob(pattern))
     names = [os.path.splitext(os.path.basename(f))[0] for f in paths]
-    pairs = [(read_hdr(f), read_hdr(os.path.join(args.refs, f"{n}_ref.exr")))
+    pairs = [(read_hdr(f), read_hdr(os.path.join(refs, f"{n}_ref.exr")))
              for f, n in zip(paths, names)]
     print("computing scatter terms...")
     scatters = [scatter_term(img, ps) for img, _ in pairs]
@@ -155,19 +156,20 @@ def main():
         variants[name] = evaluate(names, pairs, scatters, k, ps, args.eps)
         print(f"  mean loss {variants[name]['mean_loss']:.2e}")
 
-    out_dir = os.path.dirname(args.out)
-    os.makedirs(out_dir, exist_ok=True)
-    kernel_path = os.path.join(out_dir, "fft_kernels.npz")
+    out_dir = run_dir("01_gap_study", args.run, "fits")
+    out = f"{out_dir}/fft_bloom.json"
+    kernel_path = f"{out_dir}/fft_kernels.npz"
     np.savez_compressed(kernel_path, **kernels)
-    with open(args.out, "w") as fh:
-        json.dump({"psf": args.psf, "placeholder": ps.placeholder, "numpy": np.__version__,
+    with open(out, "w") as fh:
+        json.dump({"run": args.run, "psf": psf, "placeholder": ps.placeholder,
+                   "numpy": np.__version__,
                     "scipy": scipy.__version__, "inputs": names, "eps": args.eps,
                     "kernels": os.path.basename(kernel_path), "variants": variants,
                     "torch": torch.__version__,
                    "fit": {"steps": args.steps, "lr": args.lr, "device": device,
                            "loss_history": history},
                    }, fh, indent=2)
-    print(f"\nwrote {args.out} and {kernel_path}")
+    print(f"\nwrote {out} and {kernel_path}")
 
 
 if __name__ == "__main__":

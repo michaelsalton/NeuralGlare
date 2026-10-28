@@ -12,11 +12,13 @@ The point grid is the clean measurement: one source at 35 positions, so only H c
 The HDRI crops check the trend on real content, at their measured H (manifest
 H_measured).
 
-Outputs (outputs/01_gap_study/): gap_eval.json (every window, summary, versions),
-gap_table.md, gap_vs_H.png, motivation_<image>.png.
+Reads the fits from outputs/01_gap_study/<run>/fits/. Writes
+    report/   gap_table.md, gap_vs_H.png, motivation_<image>.png
+    eval/     gap_eval.json (every window, summary, versions)
 
 Usage:
-    uv run python experiments/01_gap_study/evaluate_gap.py
+    uv run python experiments/01_gap_study/evaluate_gap.py --run default \
+        --pointgrid-ref data/reference_default/pointgrid_ref_exact.exr
 """
 
 import argparse
@@ -35,6 +37,7 @@ from neuralglare.baselines.fft_bloom import fft_bloom
 from neuralglare.baselines.pyramid_bloom import URPBloomParams, pyramid_bloom
 from neuralglare.eval import metrics as m
 from neuralglare.io import display, luminance, read_hdr
+from neuralglare.paths import REFS, RUNS, psf_path, run_dir
 from neuralglare.reference.convolve import PSFSet
 
 # Fixed categorical order (validated palette, light surface); colour follows the baseline.
@@ -74,9 +77,9 @@ def field_height(x, y, w, h):
     return float(np.hypot(x - cx, y - cy) / np.hypot(cx, cy))
 
 
-def load_baselines(args, ps):
-    kernels = np.load(os.path.join(os.path.dirname(args.fft), "fft_kernels.npz"))
-    with open(args.pyramid) as fh:
+def load_baselines(fits, ps):
+    kernels = np.load(f"{fits}/fft_kernels.npz")
+    with open(f"{fits}/pyramid_fit.json") as fh:
         best = json.load(fh)["best"]
     params = URPBloomParams(**{**best, "tint": tuple(best["tint"])})
     eta = ps.scatter.energy_fraction
@@ -255,12 +258,9 @@ def plot_motivation(name, entry, ref, outs, path, zoom=192, decades=6, err_decad
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--psf", default="data/psf/psf_quick.npz")
+    ap.add_argument("--run", choices=RUNS, default="quick",
+                    help="config: picks the PSF, references, fits and output folder")
     ap.add_argument("--inputs", default="data/inputs")
-    ap.add_argument("--refs", default="data/reference")
-    ap.add_argument("--fft", default="outputs/01_gap_study/fft_bloom.json")
-    ap.add_argument("--pyramid", default="outputs/01_gap_study/pyramid_fit.json")
-    ap.add_argument("--out", default="outputs/01_gap_study")
     ap.add_argument("--pointgrid-ref", default=None,
                     help="exact point-grid reference (exact_pointgrid.py) instead of "
                          "<refs>/pointgrid_ref.exr")
@@ -270,35 +270,36 @@ def main():
     ap.add_argument("--figure", nargs="*", default=["pointgrid", "goegap_road_4k_corner",
                                                     "cobblestone_street_night_4k_corner"])
     args = ap.parse_args()
+    psf, refs = psf_path(args.run), REFS[args.run]
+    fits = run_dir("01_gap_study", args.run, "fits")
+    report = run_dir("01_gap_study", args.run, "report")
 
-    with open(os.path.join(args.refs, "reference_report.json")) as fh:
+    with open(os.path.join(refs, "reference_report.json")) as fh:
         ref_psf = json.load(fh)["psf"]
-    with open(args.fft) as fh:
+    with open(f"{fits}/fft_bloom.json") as fh:
         fft_psf = json.load(fh)["psf"]
     for what, p in (("references", ref_psf), ("FFT baseline", fft_psf)):
-        if os.path.normpath(p) != os.path.normpath(args.psf):
-            raise ValueError(f"{what} were made with {p}, not {args.psf}")
-    ps = PSFSet(args.psf)
+        if os.path.normpath(p) != os.path.normpath(psf):
+            raise ValueError(f"{what} were made with {p}, not {psf}")
+    ps = PSFSet(psf)
     if ps.placeholder:
         print("WARNING: PLACEHOLDER lens parameters. Do not report these results.\n")
     size = args.window or 2 * ps.K
-    render, pyr_params = load_baselines(args, ps)
+    render, pyr_params = load_baselines(fits, ps)
     with open(os.path.join(args.inputs, "manifest.json")) as fh:
         manifest = json.load(fh)
-    os.makedirs(args.out, exist_ok=True)
 
     records = []
     for name, entry in manifest["images"].items():
         print(f"{name}")
         img = read_hdr(os.path.join(args.inputs, f"{name}.exr"))
         ref_path = (args.pointgrid_ref if name == "pointgrid" and args.pointgrid_ref
-                    else os.path.join(args.refs, f"{name}_ref.exr"))
+                    else os.path.join(refs, f"{name}_ref.exr"))
         ref = read_hdr(ref_path)
         recs, outs = evaluate_image(name, entry, img, ref, render, size, args.eps, args.ppd)
         records += recs
         if name in args.figure:
-            plot_motivation(name, entry, ref, outs,
-                            os.path.join(args.out, f"motivation_{name}.png"))
+            plot_motivation(name, entry, ref, outs, f"{report}/motivation_{name}.png")
 
     summary = summarize(records)
     decision = decide(records, summary)
@@ -314,20 +315,21 @@ def main():
         verdict += (" Point-grid reference is grid-interpolated (10-41% PSF error between"
                     " nodes): not a valid decision; pass --pointgrid-ref.")
     print("\n" + table + "\n" + verdict)
-    with open(os.path.join(args.out, "gap_table.md"), "w", encoding="utf-8") as fh:
-        fh.write(f"# Gap study ({os.path.basename(args.psf)}, window {size} px)\n\n"
+    with open(f"{report}/gap_table.md", "w", encoding="utf-8") as fh:
+        fh.write(f"# Gap study ({os.path.basename(psf)}, window {size} px)\n\n"
                  f"{verdict}\n\n{table}")
-    plot_vs_h(records, os.path.join(args.out, "gap_vs_H.png"))
+    plot_vs_h(records, f"{report}/gap_vs_H.png")
     versions = {p: importlib.metadata.version(p)
                 for p in ("numpy", "scipy", "flip-evaluator", "rayoptics", "torch")}
-    with open(os.path.join(args.out, "gap_eval.json"), "w") as fh:
-        json.dump({"psf": args.psf, "placeholder": ps.placeholder, "window_px": size,
-                   "pointgrid_ref": args.pointgrid_ref or "interpolated",
+    eval_path = f"{run_dir('01_gap_study', args.run, 'eval')}/gap_eval.json"
+    with open(eval_path, "w") as fh:
+        json.dump({"run": args.run, "psf": psf, "placeholder": ps.placeholder,
+                   "window_px": size, "pointgrid_ref": args.pointgrid_ref or "interpolated",
                    "eps": args.eps, "flip_ppd": args.ppd, "pyramid_params": pyr_params.__dict__,
-                   "fft_kernels": os.path.join(os.path.dirname(args.fft), "fft_kernels.npz"),
+                   "fft_kernels": f"{fits}/fft_kernels.npz",
                    "bins": BINS, "versions": versions, "decision": decision, "summary": summary,
                    "records": records}, fh, indent=2)
-    print(f"\nwrote {args.out}/gap_eval.json, gap_table.md, gap_vs_H.png")
+    print(f"\nwrote {eval_path} and {report}/: gap_table.md, gap_vs_H.png, motivation_*.png")
 
 
 if __name__ == "__main__":

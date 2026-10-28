@@ -1,16 +1,18 @@
 """Radial profile of the centre PSF (reference) vs URP pyramid bloom's effective kernel.
 
+Writes outputs/01_gap_study/<run>/report/kernel_profiles.png.
+
 Usage (from the repo root):
-    uv run python experiments/01_gap_study/plot_kernels.py --psf data/psf/psf_quick.npz
+    uv run python experiments/01_gap_study/plot_kernels.py --run quick
 """
 
 import argparse
-import os
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from neuralglare.baselines.pyramid_bloom import URPBloomParams, effective_kernel
+from neuralglare.paths import RUNS, psf_path, run_dir
 from neuralglare.reference.convolve import PSFSet, reference
 
 
@@ -24,11 +26,11 @@ def radial_profile(img, y, x):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--psf", default="data/psf/psf_quick.npz")
-    ap.add_argument("--out", default="outputs/01_gap_study/kernel_profiles.png")
+    ap.add_argument("--run", choices=RUNS, default="quick",
+                    help="config: picks the PSF and output folder")
     args = ap.parse_args()
 
-    ps = PSFSet(args.psf)
+    ps = PSFSet(psf_path(args.run))
     h, w = ps.height, ps.width
     y, x = h // 2, w // 2
     delta = np.zeros((h, w, 3), np.float32)
@@ -55,9 +57,9 @@ def main():
     ax.set_title(title)
     ax.grid(True, which="both", alpha=0.3)
     ax.legend()
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    fig.savefig(args.out, dpi=150, bbox_inches="tight")
-    print(f"wrote {args.out}")
+    out = f"{run_dir('01_gap_study', args.run, 'report')}/kernel_profiles.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"wrote {out}")
 
 
 if __name__ == "__main__":

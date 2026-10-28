@@ -1,4 +1,4 @@
-// Fixed downsample chain of them glare pyramid, mirroring URP 17.6 bloom
+// Fixed downsample chain of the glare pyramid, mirroring URP 17.6 bloom
 // without its threshold and clamp: inputs stay HDR
 
 // Code reads images through the IImage interface, so the same source runs on Slangpy

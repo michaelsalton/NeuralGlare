@@ -1,8 +1,9 @@
 """Optical configuration for the reference glare model.
 
 The wavefront and vignetting come from a real-ray trace of a published lens
-prescription (see `Prescription` and lens_trace.py), not from tuned coefficients.
-Every physical value below is cited. Known limitations (see the decision log):
+prescription (see `Prescription` and lens_trace.py).
+Every physical value below is cited.
+Known limitations:
   - lens rim (clear) diameters other than the front element are PhotonsToPhotos
     estimates; no measured vignetting of this lens was found to validate them;
   - veiling-glare scatter is switched off (no citable data for this lens);
