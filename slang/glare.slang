@@ -21,6 +21,6 @@ public float3 upsample<I : IImage, J : IImage, P : IParams>(no_diff int2 texel, 
     float x[2] = { uv.x, uv.y };
     float w[2] = LevelMLP.eval(params, offset, x);
     float3 a = no_diff mip.load(texel);
-    float3 b = no_diff sample_bilinear(low, uv);
+    float3 b = sample_bilinear(low, uv);
     return w[0] * a + w[1] * b;
 }

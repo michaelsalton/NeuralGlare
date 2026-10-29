@@ -8,7 +8,7 @@ struct TensorImage : IImage
     Tensor<float3, 2> tensor;
 
     int2 size() { return int2(tensor.shape[1], tensor.shape[0]); }
-    float3 load(int2 texel) { return tensor.load(texel); }
+    [Differentiable] float3 load(int2 texel) { return no_diff tensor.load(texel); }
 }
 
 float3 prefilter_pass(int2 texel, int2 out_size, Tensor<float3, 2> src)

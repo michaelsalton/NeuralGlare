@@ -13,6 +13,8 @@ pass runs in Slang. Step 4 replaces this with the Slang pyramid trained end to e
 
 import argparse
 import json
+import platform
+import subprocess
 import time
 import tomllib
 from pathlib import Path
@@ -74,6 +76,37 @@ def relative_loss(pred, target):
     return (((pred - target) / (target + EPS)) ** 2).mean()
 
 
+def level_tensors(item, k):
+    """Level k's (mip_k, up[k+1], up[k]) of one frame, on the GPU."""
+    mips, ups = item
+    return [torch.from_numpy(a).cuda() for a in (mips[k], ups[k + 1], ups[k])]
+
+
+def run(module, mip, low, params):
+    """One upsample pass at mip's resolution."""
+    h, w = mip.shape[:2]
+    return module.upsample_pass(texel=spy.grid((h, w)), out_size=spy.int2(w, h),
+                                mip=mip, low=low, params=params)
+
+
+def command_output(*cmd):
+    """First line a command prints, or None if it isn't installed or fails."""
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return ((out.stdout or out.stderr).strip().splitlines() or [None])[0]
+
+
+def environment(device):
+    """Versions and hardware for the experiment log (CLAUDE.md: record versions)."""
+    return {"slangpy": spy.__version__, "slangc": command_output("slangc", "-v"),
+            "torch": torch.__version__, "python": platform.python_version(),
+            "gpu": device.info.adapter_name, "api": device.info.api_name,
+            "driver": command_output("nvidia-smi", "--query-gpu=driver_version",
+                                     "--format=csv,noheader")}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=1000)
@@ -101,19 +134,12 @@ def main():
     exact = torch.tensor([1 - scatter, scatter], device="cuda")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    results = {"scatter": scatter, "steps": args.steps, "lr": args.lr, "levels": []}
+    results = {"environment": environment(device), "scatter": scatter, "steps": args.steps,
+               "lr": args.lr, "levels": []}
     for k in range(n_levels):
-        def level_tensors(item):
-            mips, ups = item
-            return [torch.from_numpy(a).cuda() for a in (mips[k], ups[k + 1], ups[k])]
-
-        train = [level_tensors(item) for item in data["train"]]
-        test = [level_tensors(item) for item in data["test"]]
+        train = [level_tensors(item, k) for item in data["train"]]
+        test = [level_tensors(item, k) for item in data["test"]]
         h, w = train[0][0].shape[:2]
-
-        def run(mip, low, params):
-            return module.upsample_pass(texel=spy.grid((h, w)), out_size=spy.int2(w, h),
-                                        mip=mip, low=low, params=params)
 
         params = init_params(gen).cuda().requires_grad_(True)
         optimizer = torch.optim.Adam([params], lr=args.lr)
@@ -122,15 +148,15 @@ def main():
         for _ in range(args.steps):
             mip, low, target = train[rng.integers(len(train))]   # one random training frame
             optimizer.zero_grad()
-            loss = relative_loss(run(mip, low, params), target)
+            loss = relative_loss(run(module, mip, low, params), target)
             loss.backward()
             optimizer.step()
             schedule.step()
 
         with torch.no_grad():
-            train_loss = float(np.mean([relative_loss(run(m, l, params), t).item()
+            train_loss = float(np.mean([relative_loss(run(module, m, l, params), t).item()
                                         for m, l, t in train]))
-            test_loss = float(np.mean([relative_loss(run(m, l, params), t).item()
+            test_loss = float(np.mean([relative_loss(run(module, m, l, params), t).item()
                                        for m, l, t in test]))
             weights = module.filter_weights(uv=grid_uv, params=params)
             max_dev = (weights - exact).abs().max().item()

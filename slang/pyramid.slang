@@ -10,7 +10,7 @@ module pyramid;
 public interface IImage
 {
     public int2 size();
-    public float3 load(int2 texel);
+    [Differentiable] public float3 load(int2 texel);
 }
 
 // UV of a texel centre in a target of the given size
@@ -20,11 +20,12 @@ public float2 texel_uv(int2 texel, int2 size)
 }
 
 // bilinear fetch with clamp-to-edge addressing, like a linear-clamp sampler
-public float3 sample_bilinear<I : IImage>(I img, float2 uv)
+[Differentiable]
+public float3 sample_bilinear<I : IImage>(I img, no_diff float2 uv)
 {
     int2 size = img.size();
     float2 p = uv * float2(size) - 0.5; // continuous texel coords: integers are texel centres
-    float2 p0 = floor(p);
+    float2 p0 = no_diff floor(p); // geometry only: gradients flow through the loads, not the weights
     float2 f = p - p0; // blend weight toward the right/lower neighbour
     int2 i0 = clamp(int2(p0), int2(0), size - 1);
     int2 i1 = clamp(int2(p0) + 1, int2(0), size - 1);
