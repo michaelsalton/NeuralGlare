@@ -1,0 +1,26 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{36DCA1A4-4AE8-1372-9230-65A07DAAF08A}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "NeuralGlareUE",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModelingToolsEditorMode",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "Fab",
+			"Enabled": false
+		}
+	]
+}

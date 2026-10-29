@@ -11,9 +11,31 @@ __pycache__/
 outputs/*
 !outputs/.gitkeep
 
-# Datasets (too large for git; keep the folder)
+# Datasets (too large for git; keep the folder). Exception: the Unreal captures and
+# profiling logs, which can't be regenerated exactly (binaries go through LFS)
 data/*
 !data/.gitkeep
+!data/captures/
+data/captures/*
+!data/captures/unreal/
+
+# Visual Studio
+.vs/
+
+# Unreal: rebuilt by the editor and UnrealBuildTool
+engines/unreal/*/Binaries/
+engines/unreal/*/Intermediate/
+engines/unreal/*/Saved/
+engines/unreal/*/DerivedDataCache/
+engines/unreal/*/*.sln
+engines/unreal/*/*.slnx
+
+# Unity: rebuilt by the editor
+engines/unity/*/Library/
+engines/unity/*/Temp/
+engines/unity/*/Logs/
+engines/unity/*/UserSettings/
+engines/unity/*/obj/
 
 # Slang / slangpy caches and compiled shaders
 .slangpy_cache/

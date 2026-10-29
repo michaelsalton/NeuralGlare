@@ -1,0 +1,42 @@
+{
+  "capture": "data/captures/unreal/pointgrid_convolution.rdc",
+  "Bloom.FFT.SceneColorApplyParameters": [
+    0.8505343198776245,
+    0.6121116876602173,
+    0.4075874388217926,
+    0.0
+  ],
+  "Bloom.FFT.FFTMulitplyParameters": [
+    0.14946556091308594,
+    0.17123940587043762,
+    0.1557919830083847,
+    1.0
+  ],
+  "Bloom.FFT.SpectralKernel": {
+    "size": [
+      2050,
+      2048
+    ],
+    "texels": {
+      "0,0": [
+        0.08097368478775024,
+        0.0,
+        0.08441269397735596,
+        0.0
+      ],
+      "2048,0": [
+        0.09278625249862671,
+        0.0,
+        0.08441269397735596,
+        0.0
+      ]
+    }
+  },
+  "Bloom.FFT.ScatterDispersion": {
+    "size": [
+      1920,
+      1080
+    ],
+    "format": "R11G11B10_FLOAT"
+  }
+}

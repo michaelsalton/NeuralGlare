@@ -55,6 +55,8 @@ NeuralGlare/
 │   │   ├── NeuralGlare/        # neural glare renderer feature
 │   │   └── Generated/       # slangc output, never hand-edited
 │   └── unreal/
+│       ├── NeuralGlareUE/   # UE 5.8 C++ project hosting both the convolution-bloom baseline
+│       │                    #   and the plugin: empty level, injection material, PP volume
 │       ├── Baseline/        # PSF → convolution kernel texture, capture + timing scripts
 │       └── NeuralGlarePlugin/  # (stretch) C++ plugin: global shader (.usf), RDG pass,
 │           │                #   SceneViewExtension hook into the post-process chain
@@ -88,7 +90,7 @@ NeuralGlare/
 
 **Unreal side, secondary:**
 
-*Baseline harness (needs no C++):*
+*Baseline harness (needs no C++; the project is C++ only so NeuralGlarePlugin can build into it):*
 - Post Process Volume → Lens → Bloom → Method = **Convolution**.
 - Set **Convolution Kernel** to a texture rendered from our PSF (center PSF and best-fit PSF), exported from `src/neuralglare/reference/psf.py`.
 - Match Convolution Scale, Center and Buffer to the reference setup. Record the values per experiment.
