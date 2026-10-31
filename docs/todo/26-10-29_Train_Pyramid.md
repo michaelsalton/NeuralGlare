@@ -61,4 +61,4 @@ The weight criterion asked for something end-to-end supervision can't determine.
 - If per-level weights must be meaningful (e.g. to constrain energy per level), the network needs a constraint that removes the free directions: e.g. w0 + w1 = 1 per level (URP's lerp form, one free number per level: n weights for n + 1 coefficients, with ∑ c_k = 1 built in), or a regulariser. That's a Phase 2 design choice, alongside the open "weight sign / normalisation constraint" in the decision log
 
 ## Next
-- [ ] Phase 1, step 5: export HLSL (`export/build_hlsl.sh`), run the trained pyramid in a Unity renderer feature, and confirm Unity matches Python on the same frame
+- [x] Phase 1, step 5: export HLSL (`export/build_hlsl.sh`), run the trained pyramid in Unity, and confirm Unity matches Python on the same frame. Done 2026-10-31 in an editor harness rather than a renderer feature (the renderer feature moves to Phase 3): **PASS, bit-exact**. Record in `26-10-31_Unity_Parity.md`
