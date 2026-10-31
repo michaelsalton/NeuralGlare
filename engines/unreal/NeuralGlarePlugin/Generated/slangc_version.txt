@@ -1,0 +1,2 @@
+slangc 2026.12
+source slang/engine_glare.slang

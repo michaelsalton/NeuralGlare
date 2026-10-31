@@ -50,10 +50,15 @@ NeuralGlare/
 ├── export/
 │   └── build_hlsl.sh        # slangc -target hlsl → engines/*/Generated/ (Unity + Unreal)
 ├── engines/
-│   ├── unity/               # URP renderer features + thin HLSL wrappers
-│   │   ├── Capture/         # pre-post-process HDR EXR dump
-│   │   ├── NeuralGlare/        # neural glare renderer feature
-│   │   └── Generated/       # slangc output, never hand-edited
+│   ├── unity/
+│   │   └── NeuralGlareURP/  # Unity 6000.6.7f1, URP 17.6 project
+│   │       └── Assets/
+│   │           ├── NeuralGlare/
+│   │           │   ├── Generated/  # slangc output, never hand-edited
+│   │           │   ├── Shaders/    # .compute wrappers, one per kernel
+│   │           │   ├── Editor/     # HdrInputImporter (import rules for the HDR inputs)
+│   │           │   └── Data/       # weight file (glare_params.bytes)
+│   │           └── Data/Inputs/    # (gitignored) EXR inputs copied from data/inputs/
 │   └── unreal/
 │       ├── NeuralGlareUE/   # UE 5.8 C++ project hosting both the convolution-bloom baseline
 │       │                    #   and the plugin: empty level, injection material, PP volume

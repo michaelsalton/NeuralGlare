@@ -1,0 +1,2 @@
+#pragma kernel BlurV
+#include "../Generated/glare_BlurV.hlsl"

@@ -188,6 +188,8 @@ def main():
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     np.save(OUT_DIR / "train_pyramid_params.npy", params.detach().cpu().numpy())
+    # Engine weight file: raw little-endian float32 in the flat mlp.slang layout, no header
+    params.detach().cpu().numpy().astype("<f4").tofile(OUT_DIR / "glare_params.bytes")
     (OUT_DIR / "train_pyramid.json").write_text(json.dumps({
         "environment": environment(device), "scatter": scatter, "steps": args.steps, "lr": args.lr, "param_count": PARAM_COUNT,
         "pass_criteria": {"test_loss": PASS_TEST_LOSS, "max_weight_error": PASS_WEIGHT_ERROR},

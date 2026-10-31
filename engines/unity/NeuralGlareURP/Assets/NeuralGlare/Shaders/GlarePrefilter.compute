@@ -1,0 +1,2 @@
+#pragma kernel Prefilter
+#include "../Generated/glare_Prefilter.hlsl"
