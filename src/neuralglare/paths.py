@@ -23,6 +23,11 @@ def psf_path(run):
     return f"data/psf/psf_{run}.npz"
 
 
+def psf_bank_path(run):
+    """Exact PSFs at fixed pixel positions (experiments/03_train_network/psf_bank.py)."""
+    return f"data/psf/psf_bank_{run}.npz"
+
+
 def run_dir(experiment, run, stage):
     """outputs/<experiment>/<run>/<stage>, created if missing."""
     d = f"outputs/{experiment}/{run}/{stage}"

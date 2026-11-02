@@ -4,3 +4,11 @@
 [phase1]
 train = ["cobblestone_street_night_4k", "ferndale_studio_12_4k", "historic_cloister_passage_4k"]
 test = ["goegap_road_4k"]   # sun at 2.7e5: brighter than any training frame
+
+# Phase 2 point-light experiments: the positions of the exact PSF bank (psf_bank.py).
+# Split by position, not by scene: test positions lie between the training positions, so
+# they measure whether the network interpolates the PSF field.
+[phase2_points]
+train_grid = [9, 16]        # rows, cols of a jittered grid: one position per cell
+train_seed = 0
+test = "pointgrid"          # the Phase 0 7x5 grid (data/inputs/manifest.json), as in the gap study
