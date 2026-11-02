@@ -1,0 +1,19 @@
+{
+  "frames": [
+    {
+      "name": "goegap_road_4k_center",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "goegap_road_4k_mid",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "goegap_road_4k_corner",
+      "width": 1920,
+      "height": 1080
+    }
+  ]
+}

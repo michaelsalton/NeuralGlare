@@ -1,0 +1,238 @@
+{
+  "urp_version": "URP 17.6.0 (Unity 6.6)",
+  "numpy": "2.5.4",
+  "placeholder_references": false,
+  "inputs": [
+    "cobblestone_street_night_4k_center",
+    "cobblestone_street_night_4k_corner",
+    "cobblestone_street_night_4k_mid",
+    "ferndale_studio_12_4k_center",
+    "ferndale_studio_12_4k_corner",
+    "ferndale_studio_12_4k_mid",
+    "goegap_road_4k_center",
+    "goegap_road_4k_corner",
+    "goegap_road_4k_mid",
+    "historic_cloister_passage_4k_center",
+    "historic_cloister_passage_4k_corner",
+    "historic_cloister_passage_4k_mid"
+  ],
+  "eps": 0.001,
+  "best": {
+    "threshold": 0.9,
+    "intensity": 0.017036311693533267,
+    "scatter": 1.0,
+    "tint": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "clamp_max": 65472.0,
+    "high_quality": false,
+    "downscale": "half",
+    "max_iterations": 2
+  },
+  "grid": [
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 2,
+      "scatter": 0.0,
+      "intensity": 0.008516935215831361,
+      "loss": 0.0023661566753348986,
+      "evaluations": 41,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 3,
+      "scatter": 0.0,
+      "intensity": 0.008584483127659772,
+      "loss": 0.002364373237814713,
+      "evaluations": 43,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 4,
+      "scatter": 0.0,
+      "intensity": 0.008588211212585814,
+      "loss": 0.002364257799810814,
+      "evaluations": 43,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 5,
+      "scatter": 0.0,
+      "intensity": 0.008588211212585814,
+      "loss": 0.002364260661964046,
+      "evaluations": 43,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 6,
+      "scatter": 0.0,
+      "intensity": 0.008588211212585814,
+      "loss": 0.0023642611587426227,
+      "evaluations": 43,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 7,
+      "scatter": 0.0,
+      "intensity": 0.008588211212585814,
+      "loss": 0.002364261190964173,
+      "evaluations": 43,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 8,
+      "scatter": 0.0,
+      "intensity": 0.008588211212585814,
+      "loss": 0.0023642611904272364,
+      "evaluations": 43,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 2,
+      "scatter": 1.0,
+      "intensity": 0.017036311693533267,
+      "loss": 0.0020258384131524973,
+      "evaluations": 72,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 3,
+      "scatter": 0.2521730392053705,
+      "intensity": 0.024450031355708925,
+      "loss": 0.0021046814075535614,
+      "evaluations": 47,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 4,
+      "scatter": 0.20134867411223037,
+      "intensity": 0.026311811753034948,
+      "loss": 0.002106599972273692,
+      "evaluations": 56,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 5,
+      "scatter": 0.18900603182613637,
+      "intensity": 0.02720859607748951,
+      "loss": 0.002110696843651556,
+      "evaluations": 56,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 6,
+      "scatter": 0.18972082984167876,
+      "intensity": 0.027191163387668468,
+      "loss": 0.0021103896878357647,
+      "evaluations": 58,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 7,
+      "scatter": 0.19104462727904115,
+      "intensity": 0.027088108709894577,
+      "loss": 0.0021100360763886715,
+      "evaluations": 53,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 8,
+      "scatter": 0.19137380130588802,
+      "intensity": 0.027022267289958414,
+      "loss": 0.0021098634623842173,
+      "evaluations": 56,
+      "converged": true
+    }
+  ],
+  "per_image": {
+    "cobblestone_street_night_4k_center": {
+      "loss": 0.0018083944451063871,
+      "loss_no_bloom": 0.001968747703358531,
+      "energy_relative": 0.015960966203083737
+    },
+    "cobblestone_street_night_4k_corner": {
+      "loss": 0.00202354253269732,
+      "loss_no_bloom": 0.002198697067797184,
+      "energy_relative": 0.01584893973648338
+    },
+    "cobblestone_street_night_4k_mid": {
+      "loss": 0.0020434472244232893,
+      "loss_no_bloom": 0.0022282213903963566,
+      "energy_relative": 0.015898793510049858
+    },
+    "ferndale_studio_12_4k_center": {
+      "loss": 0.0017431832384318113,
+      "loss_no_bloom": 0.003136001992970705,
+      "energy_relative": 0.01601256463527667
+    },
+    "ferndale_studio_12_4k_corner": {
+      "loss": 0.001566862571053207,
+      "loss_no_bloom": 0.0022494953591376543,
+      "energy_relative": 0.016028657245487743
+    },
+    "ferndale_studio_12_4k_mid": {
+      "loss": 0.0016376087442040443,
+      "loss_no_bloom": 0.002835791325196624,
+      "energy_relative": 0.01616584492630513
+    },
+    "goegap_road_4k_center": {
+      "loss": 0.0009674590546637774,
+      "loss_no_bloom": 0.000959387980401516,
+      "energy_relative": 0.013863417722097537
+    },
+    "goegap_road_4k_corner": {
+      "loss": 0.0016194183845072985,
+      "loss_no_bloom": 0.0016020904295146465,
+      "energy_relative": 0.007854748906705122
+    },
+    "goegap_road_4k_mid": {
+      "loss": 0.0010981977684423327,
+      "loss_no_bloom": 0.0010686191963031888,
+      "energy_relative": 0.009750763306710875
+    },
+    "historic_cloister_passage_4k_center": {
+      "loss": 0.003275009337812662,
+      "loss_no_bloom": 0.0038936641067266464,
+      "energy_relative": 0.015988059217408868
+    },
+    "historic_cloister_passage_4k_corner": {
+      "loss": 0.0027434108778834343,
+      "loss_no_bloom": 0.0031951263081282377,
+      "energy_relative": 0.014691561234090988
+    },
+    "historic_cloister_passage_4k_mid": {
+      "loss": 0.0037043574266135693,
+      "loss_no_bloom": 0.00431232713162899,
+      "energy_relative": 0.015255586173511526
+    }
+  }
+}

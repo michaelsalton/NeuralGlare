@@ -1,0 +1,336 @@
+{
+  "environment": {
+    "slangpy": "0.43.1",
+    "slangc": "2026.12",
+    "torch": "2.11.0+cu128",
+    "python": "3.12.15",
+    "gpu": "NVIDIA GeForce RTX 2070",
+    "api": "Vulkan",
+    "driver": "621.01"
+  },
+  "unity": {
+    "unityVersion": "6000.6.7f1",
+    "graphicsDeviceType": "Direct3D11",
+    "graphicsDeviceName": "NVIDIA GeForce RTX 2070",
+    "graphicsDeviceVersion": "Direct3D 11.0 [level 11.1]"
+  },
+  "criteria": {
+    "rtol": 0.0001,
+    "atol_rel": 1e-07
+  },
+  "pass": true,
+  "frames": {
+    "goegap_road_4k_center": {
+      "pass": true,
+      "levels": {
+        "mip0": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip1": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip2": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip3": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip4": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip5": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up0": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up1": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up2": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up3": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up4": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    "goegap_road_4k_mid": {
+      "pass": true,
+      "levels": {
+        "mip0": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip1": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip2": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip3": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip4": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip5": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up0": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up1": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up2": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up3": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up4": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    },
+    "goegap_road_4k_corner": {
+      "pass": true,
+      "levels": {
+        "mip0": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip1": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip2": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip3": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip4": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mip5": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up0": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up1": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up2": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up3": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "up4": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    }
+  }
+}

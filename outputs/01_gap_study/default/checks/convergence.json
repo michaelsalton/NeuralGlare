@@ -1,0 +1,31 @@
+{
+  "tolerance": 0.01,
+  "defaults": {
+    "rays": 101,
+    "table_px": 257,
+    "wavelengths": 12,
+    "kernel_px": 127,
+    "grid": "6x8"
+  },
+  "relative_l1": {
+    "rays": 2.164379503558825e-06,
+    "table_px": 6.152199540705119e-05,
+    "wavelengths": 0.04453046094693735,
+    "kernel_px": 0.0004632634079475848,
+    "kernel_px_energy_outside": 0.00010043473784537849,
+    "grid": 0.41293297893898734
+  },
+  "verdict": {
+    "rays": "PASS",
+    "table_px": "PASS",
+    "wavelengths": "FAIL",
+    "kernel_px": "PASS",
+    "grid": "FAIL"
+  },
+  "corner_H": 1.0,
+  "cell_centre_px": [
+    137,
+    108
+  ],
+  "cell_centre_H": 0.843785150118428
+}

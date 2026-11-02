@@ -7,10 +7,6 @@ __pycache__/
 .ruff_cache/
 .ipynb_checkpoints/
 
-# Experiment outputs (keep the folder)
-outputs/*
-!outputs/.gitkeep
-
 # Datasets (too large for git; keep the folder). Exception: the Unreal captures and
 # profiling logs, which can't be regenerated exactly (binaries go through LFS)
 data/*
