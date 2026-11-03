@@ -3,7 +3,7 @@ reference, as a function of field height H.
 
 Each baseline is re-rendered from its saved fit (fft_kernels.npz, pyramid_fit.json) and
 compared with the reference in a window around every light source:
-    log_mse    mean squared difference of log(x + eps): the loss the baselines were fitted to
+    log_mse    mean squared difference of log(x + eps): the original baselines' fitting loss
     log_psnr   PSNR of the log images; peak = log(max ref + eps) - log(eps) of the frame
     flip       mean HDR-FLIP in the window. The FLIP map is computed once per full frame, so
                every window of a frame shares one exposure range
@@ -15,6 +15,8 @@ H_measured).
 Reads the fits from outputs/01_gap_study/<run>/fits/. Writes
     report/   gap_table.md, gap_vs_H.png, motivation_<image>.png
     eval/     gap_eval.json (every window, summary, versions)
+--fit-loss abs scores the baselines fitted with the absolute log error instead (fits and
+outputs named *_abs, decision log 2026-11-03).
 
 Usage:
     uv run python experiments/01_gap_study/evaluate_gap.py --run default \
@@ -77,9 +79,10 @@ def field_height(x, y, w, h):
     return float(np.hypot(x - cx, y - cy) / np.hypot(cx, cy))
 
 
-def load_baselines(fits, ps):
-    kernels = np.load(f"{fits}/fft_kernels.npz")
-    with open(f"{fits}/pyramid_fit.json") as fh:
+def load_baselines(fits, ps, suffix=""):
+    """Renderers of the fitted baselines; suffix picks the fits (metrics.fit_suffix)."""
+    kernels = np.load(f"{fits}/fft_kernels{suffix}.npz")
+    with open(f"{fits}/pyramid_fit{suffix}.json") as fh:
         best = json.load(fh)["best"]
     params = URPBloomParams(**{**best, "tint": tuple(best["tint"])})
     eta = ps.scatter.energy_fraction
@@ -108,7 +111,7 @@ def evaluate_image(name, entry, img, ref, render, size, eps, ppd):
     for b in BASELINES:
         out = render[b](img)
         outs[b] = out
-        fmap, flip_params = m.flip_map(out, ref, ppd)
+        fmap, flip_params = m.flip_map(out, ref, ppd, floor=m.flip_floor(eps))   # decision log 2026-11-03
         for x, y in sources(name, entry):
             w_out, w_ref = m.window(out, x, y, size), m.window(ref, x, y, size)
             records.append({
@@ -267,16 +270,19 @@ def main():
     ap.add_argument("--window", type=int, default=None, help="window size, px (default 2K)")
     ap.add_argument("--eps", type=float, default=1e-3)
     ap.add_argument("--ppd", type=float, default=67.0, help="FLIP pixels per degree")
+    ap.add_argument("--fit-loss", choices=sorted(m.LOG_LOSSES), default="sq",
+                    help="score the baselines fitted with this log error")
     ap.add_argument("--figure", nargs="*", default=["pointgrid", "goegap_road_4k_corner",
                                                     "cobblestone_street_night_4k_corner"])
     args = ap.parse_args()
+    sfx = m.fit_suffix(args.fit_loss)
     psf, refs = psf_path(args.run), REFS[args.run]
     fits = run_dir("01_gap_study", args.run, "fits")
     report = run_dir("01_gap_study", args.run, "report")
 
     with open(os.path.join(refs, "reference_report.json")) as fh:
         ref_psf = json.load(fh)["psf"]
-    with open(f"{fits}/fft_bloom.json") as fh:
+    with open(f"{fits}/fft_bloom{sfx}.json") as fh:
         fft_psf = json.load(fh)["psf"]
     for what, p in (("references", ref_psf), ("FFT baseline", fft_psf)):
         if os.path.normpath(p) != os.path.normpath(psf):
@@ -285,7 +291,7 @@ def main():
     if ps.placeholder:
         print("WARNING: PLACEHOLDER lens parameters. Do not report these results.\n")
     size = args.window or 2 * ps.K
-    render, pyr_params = load_baselines(fits, ps)
+    render, pyr_params = load_baselines(fits, ps, sfx)
     with open(os.path.join(args.inputs, "manifest.json")) as fh:
         manifest = json.load(fh)
 
@@ -299,7 +305,7 @@ def main():
         recs, outs = evaluate_image(name, entry, img, ref, render, size, args.eps, args.ppd)
         records += recs
         if name in args.figure:
-            plot_motivation(name, entry, ref, outs, f"{report}/motivation_{name}.png")
+            plot_motivation(name, entry, ref, outs, f"{report}/motivation_{name}{sfx}.png")
 
     summary = summarize(records)
     decision = decide(records, summary)
@@ -315,21 +321,24 @@ def main():
         verdict += (" Point-grid reference is grid-interpolated (10-41% PSF error between"
                     " nodes): not a valid decision; pass --pointgrid-ref.")
     print("\n" + table + "\n" + verdict)
-    with open(f"{report}/gap_table.md", "w", encoding="utf-8") as fh:
-        fh.write(f"# Gap study ({os.path.basename(psf)}, window {size} px)\n\n"
+    with open(f"{report}/gap_table{sfx}.md", "w", encoding="utf-8") as fh:
+        fh.write(f"# Gap study ({os.path.basename(psf)}, window {size} px, baselines fitted "
+                 f"with the {args.fit_loss} log loss)\n\n"
                  f"{verdict}\n\n{table}")
-    plot_vs_h(records, f"{report}/gap_vs_H.png")
+    plot_vs_h(records, f"{report}/gap_vs_H{sfx}.png")
     versions = {p: importlib.metadata.version(p)
                 for p in ("numpy", "scipy", "flip-evaluator", "rayoptics", "torch")}
-    eval_path = f"{run_dir('01_gap_study', args.run, 'eval')}/gap_eval.json"
+    eval_path = f"{run_dir('01_gap_study', args.run, 'eval')}/gap_eval{sfx}.json"
     with open(eval_path, "w") as fh:
         json.dump({"run": args.run, "psf": psf, "placeholder": ps.placeholder,
                    "window_px": size, "pointgrid_ref": args.pointgrid_ref or "interpolated",
-                   "eps": args.eps, "flip_ppd": args.ppd, "pyramid_params": pyr_params.__dict__,
-                   "fft_kernels": f"{fits}/fft_kernels.npz",
+                   "eps": args.eps, "flip_ppd": args.ppd, "fit_loss": args.fit_loss,
+                   "pyramid_params": pyr_params.__dict__,
+                   "fft_kernels": f"{fits}/fft_kernels{sfx}.npz",
                    "bins": BINS, "versions": versions, "decision": decision, "summary": summary,
                    "records": records}, fh, indent=2)
-    print(f"\nwrote {eval_path} and {report}/: gap_table.md, gap_vs_H.png, motivation_*.png")
+    print(f"\nwrote {eval_path} and {report}/: gap_table{sfx}.md, gap_vs_H{sfx}.png, "
+          f"motivation_*{sfx}.png")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,240 @@
+{
+  "run": "default",
+  "urp_version": "URP 17.6.0 (Unity 6.6)",
+  "numpy": "2.5.4",
+  "placeholder_references": false,
+  "inputs": [
+    "cobblestone_street_night_4k_center",
+    "cobblestone_street_night_4k_corner",
+    "cobblestone_street_night_4k_mid",
+    "ferndale_studio_12_4k_center",
+    "ferndale_studio_12_4k_corner",
+    "ferndale_studio_12_4k_mid",
+    "goegap_road_4k_center",
+    "goegap_road_4k_corner",
+    "goegap_road_4k_mid",
+    "historic_cloister_passage_4k_center",
+    "historic_cloister_passage_4k_corner",
+    "historic_cloister_passage_4k_mid"
+  ],
+  "eps": 0.001,
+  "loss": "abs",
+  "best": {
+    "threshold": 0.9,
+    "intensity": 0.0001,
+    "scatter": 0.0,
+    "tint": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "clamp_max": 65472.0,
+    "high_quality": false,
+    "downscale": "half",
+    "max_iterations": 5
+  },
+  "grid": [
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 2,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.01721510920200865,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 3,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.017214983077156926,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 4,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.017214965834535172,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 5,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.0172149653049195,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 6,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.017214965319296883,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 7,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.017214965318821433,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.0,
+      "downscale": "half",
+      "max_iterations": 8,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.01721496531873382,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 2,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.017213459511922023,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 3,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.01721333968745799,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 4,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.017213322615307895,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 5,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.017213322056805435,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 6,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.017213322067757764,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 7,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.0172133220670927,
+      "evaluations": 22,
+      "converged": true
+    },
+    {
+      "threshold": 0.9,
+      "downscale": "half",
+      "max_iterations": 8,
+      "scatter": 0.0,
+      "intensity": 0.0001,
+      "loss": 0.017213322067001872,
+      "evaluations": 22,
+      "converged": true
+    }
+  ],
+  "per_image": {
+    "cobblestone_street_night_4k_center": {
+      "loss": 0.01742679625749588,
+      "loss_no_bloom": 0.01742694340646267,
+      "energy_relative": 9.368822058419823e-05
+    },
+    "cobblestone_street_night_4k_corner": {
+      "loss": 0.016911933198571205,
+      "loss_no_bloom": 0.016912080347537994,
+      "energy_relative": 9.303028681539871e-05
+    },
+    "cobblestone_street_night_4k_mid": {
+      "loss": 0.017637457698583603,
+      "loss_no_bloom": 0.017637360841035843,
+      "energy_relative": 9.332167926845436e-05
+    },
+    "ferndale_studio_12_4k_center": {
+      "loss": 0.01161353848874569,
+      "loss_no_bloom": 0.011618140153586864,
+      "energy_relative": 9.399062043891071e-05
+    },
+    "ferndale_studio_12_4k_corner": {
+      "loss": 0.011485161259770393,
+      "loss_no_bloom": 0.011487569659948349,
+      "energy_relative": 9.408232358487645e-05
+    },
+    "ferndale_studio_12_4k_mid": {
+      "loss": 0.011754579842090607,
+      "loss_no_bloom": 0.01175842247903347,
+      "energy_relative": 9.488385425271417e-05
+    },
+    "goegap_road_4k_center": {
+      "loss": 0.01095407735556364,
+      "loss_no_bloom": 0.010950030758976936,
+      "energy_relative": 8.13766267404592e-05
+    },
+    "goegap_road_4k_corner": {
+      "loss": 0.020007355138659477,
+      "loss_no_bloom": 0.020003225654363632,
+      "energy_relative": 4.610735551580092e-05
+    },
+    "goegap_road_4k_mid": {
+      "loss": 0.01401797216385603,
+      "loss_no_bloom": 0.01401486899703741,
+      "energy_relative": 5.723636280441369e-05
+    },
+    "historic_cloister_passage_4k_center": {
+      "loss": 0.025506621226668358,
+      "loss_no_bloom": 0.0255074892193079,
+      "energy_relative": 9.384829432401709e-05
+    },
+    "historic_cloister_passage_4k_corner": {
+      "loss": 0.02244710363447666,
+      "loss_no_bloom": 0.02244669571518898,
+      "energy_relative": 8.623896666759556e-05
+    },
+    "historic_cloister_passage_4k_mid": {
+      "loss": 0.02665100432932377,
+      "loss_no_bloom": 0.02665090374648571,
+      "energy_relative": 8.953928947352807e-05
+    }
+  }
+}

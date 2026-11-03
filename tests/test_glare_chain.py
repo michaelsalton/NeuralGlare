@@ -1,6 +1,6 @@
 """The chained upsample passes (slang/train_glare.slang, upsample_chain_pass) before any training.
 
-With every level's MLP set to output URP's constant weights (1 - s, s), the Slang chain must
+With every level's MLP set to output URP's constant blend t = s (bias logit(s)), the Slang chain must
 reproduce the NumPy URP upsample chain, and a loss on the final image must send gradients into
 every level's parameters. A failure here is plumbing, not learning.
 
@@ -27,7 +27,7 @@ from neuralglare.baselines.pyramid_bloom import (
 )
 
 SLANG_DIR = Path(__file__).parents[1] / "slang"
-IN, HIDDEN, OUT = 2, 16, 2                       # LevelMLP in glare.slang
+IN, HIDDEN, OUT = 2, 16, 1                       # LevelMLP in glare.slang
 PARAM_COUNT = (IN * HIDDEN + HIDDEN) + (HIDDEN * OUT + OUT)
 
 needs_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA torch")
@@ -61,11 +61,10 @@ def urp_up0(mips, scatter):
 
 def exact_params(n_levels, scatter):
     """Every weight and hidden bias 0, so the hidden layer outputs leaky_relu(0) = 0 and each
-    MLP outputs its output bias: (1 - s, s), URP's answer."""
+    MLP outputs its output bias: logit(s), so t = sigmoid(logit(s)) = s, URP's answer."""
     params = torch.zeros(n_levels * PARAM_COUNT)
     for k in range(n_levels):
-        params[(k + 1) * PARAM_COUNT - OUT:(k + 1) * PARAM_COUNT] = torch.tensor(
-            [1 - scatter, scatter])
+        params[(k + 1) * PARAM_COUNT - 1] = float(np.log(scatter / (1 - scatter)))
     return params
 
 
@@ -97,22 +96,25 @@ def test_gradient_reaches_every_level(module, pyramid):
     params = exact_params(len(mips) - 1, scatter).cuda().requires_grad_(True)
     chain(module, gpu, params).sum().backward()
     grad = params.grad.reshape(len(mips) - 1, PARAM_COUNT)
-    # d(sum of up0) / d(bias of level k's low weight) is nonzero for every level
+    # d(sum of up0) / d(bias of level k's blend) is nonzero for every level
     assert torch.all(grad[:, -1].abs() > 0), grad[:, -1]
 
 
 @needs_cuda
 def test_gradient_matches_finite_difference(module, pyramid):
-    """The chain is linear in each level's output bias, so a central difference is exact up to
-    float32 round-off: checks the backward pass through every low input, not just its sign."""
+    """The chain is linear in each level's blend t = sigmoid(bias), so a central difference is
+    off by sigmoid's curvature, h^2/6 * |1 - 6s + 6s^2| relative (5e-4 at h = 0.1), plus float32
+    round-off that grows as 1/h (up to 1.2e-3 at h = 0.01, deepest level: its gradient carries
+    the factor s(1 - s)). h = 0.03 keeps both below 3e-4: checks the backward pass through every
+    low input, not just its sign."""
     mips, scatter = pyramid
     gpu = [torch.from_numpy(m).cuda() for m in mips]
     n_levels = len(mips) - 1
     params = exact_params(n_levels, scatter).cuda().requires_grad_(True)
     chain(module, gpu, params).sum().backward()
-    h = 1e-2
+    h = 3e-2
     for k in range(n_levels):
-        i = (k + 1) * PARAM_COUNT - 1                    # level k's bias on the low tap
+        i = (k + 1) * PARAM_COUNT - 1                    # level k's output bias (the blend)
         plus, minus = params.detach().clone(), params.detach().clone()
         plus[i] += h
         minus[i] -= h

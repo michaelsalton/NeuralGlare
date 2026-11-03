@@ -19,6 +19,12 @@ public float leaky_relu(float x)
     return x > 0.0 ? x : 0.01 * x;
 }
 
+[Differentiable]
+public float sigmoid(float x)
+{
+    return 1.0 / (1.0 + exp(-x));
+}
+
 // One dense layer: y = W x + b, reading parameters starting at `offset`.
 [Differentiable]
 public float[Out] dense<let In : int, let Out : int, P : IParams>(P params, no_diff int offset,

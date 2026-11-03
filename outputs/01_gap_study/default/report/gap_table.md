@@ -1,15 +1,15 @@
 # Gap study (psf_default.npz, window 254 px)
 
-**Decision: PROCEED**. Best uniform kernel: FFT, centre PSF; point-grid edge/centre FLIP 4.25x (required >= 2.0x); HDRI crops 4.62x (required > 1).
+**Decision: PROCEED**. Best uniform kernel: FFT, centre PSF; point-grid edge/centre FLIP 5.35x (required >= 2.0x); HDRI crops 4.62x (required > 1).
 
 ### Point grid (same source, only H changes)
 
 | Baseline | FLIP centre | FLIP mid | FLIP edge | edge/centre | log-MSE centre | log-MSE mid | log-MSE edge | edge/centre | energy edge |
 |---|---|---|---|---|---|---|---|---|---|
-| FFT, centre PSF | 0.0481 | 0.0994 | 0.2044 | 4.25x | 2.78e-03 | 2.06e-02 | 5.74e-02 | 20.65x | -0.00% |
-| FFT, best-fit PSF | 0.0866 | 0.1220 | 0.2244 | 2.59x | 9.53e-03 | 2.60e-02 | 6.37e-02 | 6.68x | -0.00% |
-| Pyramid bloom (fitted) | 0.2661 | 0.2661 | 0.3470 | 1.30x | 2.04e-01 | 2.00e-01 | 2.09e-01 | 1.03x | +1.70% |
-| No bloom | 0.2690 | 0.2691 | 0.3511 | 1.31x | 2.34e-01 | 2.50e-01 | 3.26e-01 | 1.40x | -0.00% |
+| FFT, centre PSF | 0.0123 | 0.0281 | 0.0657 | 5.35x | 2.78e-03 | 2.06e-02 | 5.74e-02 | 20.65x | -0.00% |
+| FFT, best-fit PSF | 0.0251 | 0.0350 | 0.0701 | 2.80x | 9.53e-03 | 2.60e-02 | 6.37e-02 | 6.68x | -0.00% |
+| Pyramid bloom (fitted) | 0.0813 | 0.0826 | 0.1138 | 1.40x | 2.04e-01 | 2.00e-01 | 2.09e-01 | 1.03x | +1.70% |
+| No bloom | 0.0817 | 0.0833 | 0.1162 | 1.42x | 2.34e-01 | 2.50e-01 | 3.26e-01 | 1.40x | -0.00% |
 
 Medians over windows. Windows per bin: {'centre': 5, 'mid': 16, 'edge': 14}. Bins: centre H < 1/3, mid 1/3-2/3, edge >= 2/3.
 

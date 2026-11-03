@@ -14,6 +14,7 @@
     "graphicsDeviceName": "NVIDIA GeForce RTX 2070",
     "graphicsDeviceVersion": "Direct3D 11.0 [level 11.1]"
   },
+  "weights": "outputs/03_train_network/default/export/glare_params_lerp_abs_fitted_lr0.0001.bytes",
   "criteria": {
     "rtol": 0.0001,
     "atol_rel": 1e-07
@@ -22,6 +23,7 @@
   "frames": {
     "goegap_road_4k_center": {
       "pass": true,
+      "decides": "full",
       "levels": {
         "mip0": {
           "max_bound_ratio": 0.0,
@@ -114,6 +116,15 @@
           ]
         },
         "up4": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "full": {
           "max_bound_ratio": 0.0,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
@@ -126,6 +137,7 @@
     },
     "goegap_road_4k_mid": {
       "pass": true,
+      "decides": "full",
       "levels": {
         "mip0": {
           "max_bound_ratio": 0.0,
@@ -218,6 +230,15 @@
           ]
         },
         "up4": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "full": {
           "max_bound_ratio": 0.0,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
@@ -230,6 +251,7 @@
     },
     "goegap_road_4k_corner": {
       "pass": true,
+      "decides": "full",
       "levels": {
         "mip0": {
           "max_bound_ratio": 0.0,
@@ -322,6 +344,15 @@
           ]
         },
         "up4": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "full": {
           "max_bound_ratio": 0.0,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [

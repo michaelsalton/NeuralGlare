@@ -21,6 +21,53 @@ def test_log_psnr_and_energy():
     assert abs(m.log_psnr(ref * 2, ref, 1e-3, peak) - expected) < 1e-6
 
 
+def test_log_abs_loss():
+    ref = np.full((8, 8, 3), 2.0, np.float32)
+    assert m.log_abs_loss(ref, ref, 1e-3) == 0.0
+    assert abs(m.log_abs_loss(ref * 2, ref, 0.0) - np.log(2)) < 1e-6   # sign-free: ln 2
+    assert abs(m.log_abs_loss(ref / 2, ref, 0.0) - np.log(2)) < 1e-6   # either way
+    assert m.LOG_LOSSES["sq"] is m.log_loss and m.fit_suffix("sq") == ""
+
+
+def test_flip_constant_matches_flip():
+    """FLIP_K is FLIP's own constant: a constant-1 reference gets start exposure log2(K)."""
+    one = np.ones((8, 8, 3), np.float32)
+    _, params = m.flip_map(one, one)
+    assert abs(params["startExposure"] - np.log2(m.FLIP_K)) < 1e-5
+
+
+def test_flip_floor_leaves_natural_images_alone():
+    ref = np.random.default_rng(0).uniform(0.1, 10, (32, 48, 3)).astype(np.float32)
+    pred = ref * 1.2
+    err0, p0 = m.flip_map(pred, ref)
+    err1, p1 = m.flip_map(pred, ref, floor=1e-3)               # median ~5 >> floor
+    assert p1 == p0 and np.array_equal(err1, err0)
+
+
+def test_flip_floor_bounds_black_frames():
+    """A sparse bright point on black: without a floor, a haze far below the floor scores as
+    a large error; with it, the haze is invisible and the start exposure is FLIP's own."""
+    ref = np.zeros((64, 64, 3), np.float32)
+    ref[32, 32] = 1e4
+    haze = ref + 1e-6
+    err0, p0 = m.flip_map(haze, ref)
+    err1, p1 = m.flip_map(haze, ref, floor=1e-3)
+    assert float(err0.mean()) > 0.5 and float(err1.mean()) < 0.05
+    assert abs(p1["startExposure"] - p0["startExposure"]) < 1e-5
+    assert abs(p1["stopExposure"] - np.log2(m.FLIP_K / 1e-3)) < 1e-5
+
+
+def test_flip_floor_matches_log_loss_visibility():
+    """With flip_floor(eps), FLIP and the log loss agree on what is visible: a haze 10x
+    below eps is (nearly) invisible to both, a haze at eps is a large error in both."""
+    eps = 1e-3
+    ref = np.zeros((64, 64, 3), np.float32)
+    ref[32, 32] = 1e4
+    faint, _ = m.flip_map(ref + 0.1 * eps, ref, floor=m.flip_floor(eps))
+    at_eps, _ = m.flip_map(ref + eps, ref, floor=m.flip_floor(eps))
+    assert float(faint.mean()) < 0.25 and float(at_eps.mean()) > 0.75
+
+
 def test_flip_map_shape_and_identity():
     ref = np.random.default_rng(0).uniform(0, 10, (32, 48, 3)).astype(np.float32)
     err, params = m.flip_map(ref, ref)

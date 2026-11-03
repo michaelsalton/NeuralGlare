@@ -86,6 +86,7 @@ float2 filter_weights(float2 uv, DiffTensor<float, 1> params)
 {
     TensorParams p = { params };
     float x[2] = { uv.x, uv.y };
-    float w[2] = LevelMLP.eval(p, 0, x);
-    return float2(w[0], w[1]);
+    float z[1] = LevelMLP.eval(p, 0, x);
+    float t = sigmoid(z[0]);
+    return float2(1.0 - t, t);              // as upsample() in glare.slang
 }

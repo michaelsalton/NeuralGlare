@@ -2,22 +2,30 @@
 
 Model: the Phase 1 pyramid (2 taps per level, grey weights, input uv) plus one level at full
 resolution, whose "mip" is the input frame itself:
-    out = w0(uv) * input + w1(uv) * bilinear(up[0])
+    out = (1 - t(uv)) * input + t(uv) * bilinear(up[0]),   t = sigmoid(MLP(uv))
 Phase 1's up[0] is half resolution, while the lens reference is the full frame convolved with
 the PSF, most of whose energy sits in a core a few pixels wide. The input path carries the core,
-the pyramid the halo. Same upsample kernel, one more network in the weight buffer.
+the pyramid the halo. Same upsample kernel, one more network in the weight buffer. Every level
+is a lerp (glare.slang, decision log 2026-11-02): weights positive and summing to 1, so outputs
+are never negative and light is never lost.
 
 Data: the PSF bank (psf_bank.py). The 144 training positions are packed into 9 fixed frames by
 (row mod 3, col mod 3) of their grid cell, so sources are >= 241 px apart and their PSFs never
 overlap; every reference is the bank's exact PSFs splatted at intensity 1e4 (as the point grid).
-Model and optics are linear, so fixed frames lose nothing against random ones.
+Model and optics are linear, so fixed frames lose nothing against random ones. One frame
+(split.toml val_frame) is held out: 8 frames train, the validation frame selects between runs.
 
-Loss: mean squared difference of log(max(out, 0) + EPS) and log(ref + EPS), EPS = 1e-7 x
-intensity = 1e-3 (the gap study's eps), plus (out- / EPS)^2: the weights are unconstrained, an
-output can go negative, and the clamped log has no gradient there.
+Loss: mean difference of log(out + EPS) and log(ref + EPS), EPS = 1e-7 x intensity = 1e-3 (the
+gap study's eps). --loss abs (default) takes its absolute value, --loss sq its square (the gap
+study's log-MSE). Squaring shrinks small errors quadratically, so a faint haze that FLIP sees
+barely counts; the absolute error grows linearly with it, as FLIP does (decision log 2026-11-03).
+No negative-output penalty: the lerp can't produce negatives.
+
+Selection between runs: lowest mean FLIP over the validation frame's windows.
 
 Evaluation and criterion, fixed before the first run (decision log 2026-10-31): exactly the gap
-study's measurement (evaluate_gap.py) on the 35 point-grid test sources, compared with Phase 0:
+study's measurement (evaluate_gap.py) on the 35 point-grid test sources, compared with Phase 0's
+strongest tuned baselines (the lower-FLIP of the sq and abs fits, strongest_baselines):
     (1) beats the fitted pyramid: median FLIP below it in every H bin
     (2) closes the edge gap: median edge FLIP below the best uniform kernel's, and
         edge / centre FLIP <= 2x
@@ -27,12 +35,14 @@ form the aperture spikes or colour fringes).
 slangpy 0.43.1 decides from the first upsample_chain_pass call whether it is differentiable, so
 training runs before any evaluation (see train_pyramid.py).
 
---init fitted (sanity check, decision log 2026-11-02) starts every level at Phase 0's fitted
-pyramid bloom as constant weights instead of Phase 1's, so the "Init" row must reproduce Phase 0's
-fitted-pyramid numbers; outputs get a "_fitted" suffix.
+--init fitted (default) starts every level at Phase 0's fitted pyramid bloom as a constant
+blend, energy-normalised (see fitted_pyramid_init), so the "Init" row is close to Phase 0's
+fitted-pyramid numbers but not identical. --init neutral starts every level at t = 0.5.
+Outputs are named train_points_<ARCH>_<loss>_<init>_lr<lr>. Older runs kept their names: before
+the lerp (2-weight networks), and before the validation frame (squared loss on all 9 frames,
+train_points_<ARCH>_<init>_lr<lr>).
 
     uv run python experiments/03_train_network/train_points.py --run default
-    uv run python experiments/03_train_network/train_points.py --run default --init fitted
 """
 
 import argparse
@@ -57,10 +67,13 @@ sys.path.insert(0, str(ROOT / "experiments" / "02_slang_plumbing"))
 from evaluate_gap import BINS, field_height
 from exact_pointgrid import splat
 from train_levels import HIDDEN, IN, OUT, environment, init_params
-from train_levels import OUT_DIR as PHASE1_DIR
 from train_pyramid import PARAM_COUNT, slang_mips
 
 EXPERIMENT = "03_train_network"
+ARCH = "lerp"                       # glare.slang's level form; part of every output name
+T_PASS = 1e-4                       # default blend of a pass-through level (sigmoid never
+                                    # reaches 0); its gradient carries t(1 - t), so a tiny t
+                                    # nearly freezes the level (decision log 2026-11-02)
 INTENSITY = 1e4                     # per channel, as the Phase 0 point grid
 EPS = 1e-7 * INTENSITY              # 7 decades below the source; = the gap study's eps
 P = URPBloomParams(threshold=0.0, clamp_max=np.inf, max_iterations=6)     # as Phase 1
@@ -87,22 +100,24 @@ def train_frames(bank, rows, cols):
     return frames
 
 
-def fitted_pyramid_init(gen, n_levels, fit):
-    """Phase 0's fitted pyramid bloom as constant per-level weights (output layer 0, bias w).
-    URP with m mips: up[k] = lerp(mip_k, up(up[k+1]), s) for k < m-1, up[m-1] = mip_{m-1};
-    out = input + intensity * up(up[0]). Hidden layers stay random so uv can still be learned."""
+def fitted_pyramid_init(gen, n_levels, fit, t_pass=T_PASS):
+    """Phase 0's fitted pyramid bloom as a constant blend per level (output layer 0, bias
+    logit(t)). URP with m mips: up[k] = lerp(mip_k, up(up[k+1]), s) for k < m-1,
+    up[m-1] = mip_{m-1}: t = s, then t = t_pass. URP's last step out = input + I * up(up[0])
+    adds light; the energy-conserving lerp with the same shape is that divided by 1 + I,
+    t = I / (1 + I). Hidden layers stay random so uv can still be learned."""
     p = URPBloomParams(**{**fit, "tint": tuple(fit["tint"])})
     assert p.tint == (1.0, 1.0, 1.0), "a tint isn't representable by grey weights"
     assert p.max_iterations <= n_levels - 1, "fit uses more mips than the model has"
     _, _, s = shader_constants(p)
     m = p.max_iterations
-    weights = [(1 - s, s) if k < m - 1 else (1.0, 0.0) for k in range(n_levels - 1)]
-    weights.append((1.0, p.intensity))                  # full-resolution level
+    blends = [s if k < m - 1 else t_pass for k in range(n_levels - 1)]
+    blends.append(p.intensity / (1 + p.intensity))      # full-resolution level
     nets = []
-    for w in weights:
+    for t in blends:
         net = init_params(gen)
         net[IN * HIDDEN + HIDDEN:-OUT] = 0              # W2: output independent of uv
-        net[-OUT:] = torch.tensor(w)                    # b2: the constant weights
+        net[-OUT:] = float(np.log(t / (1 - t)))         # b2 = logit(t)
         nets.append(net)
     return torch.cat(nets)
 
@@ -140,17 +155,17 @@ def prepare(module, img, ref=None):
     return mips, src, (None if ref is None else torch.from_numpy(ref).cuda())
 
 
-def log_loss(out, ref):
-    data = (torch.log(out.clamp(min=0) + EPS) - torch.log(ref + EPS)) ** 2
-    negative = ((-out).clamp(min=0) / EPS) ** 2
-    return data.mean() + negative.mean()
+def log_loss(out, ref, kind):
+    """Mean log error, log(out + EPS) - log(ref + EPS): absolute ("abs") or squared ("sq")."""
+    d = torch.log(out + EPS) - torch.log(ref + EPS)
+    return (d.abs() if kind == "abs" else d ** 2).mean()
 
 
-def train_loss(module, data, params):
-    """The training objective itself: mean loss over all training frames. One frame's loss
-    isn't comparable across steps (frames hold 15 or 18 sources)."""
+def frames_loss(module, data, params, kind):
+    """The objective over a set of frames (training or validation): mean of the per-frame
+    losses. One frame's loss isn't comparable across steps (frames hold 15 or 18 sources)."""
     with torch.no_grad():
-        return float(np.mean([log_loss(glare(module, mips, src, params), ref).item()
+        return float(np.mean([log_loss(glare(module, mips, src, params), ref, kind).item()
                               for mips, src, ref in data]))
 
 
@@ -159,7 +174,7 @@ def evaluate(module, params, img, ref, positions, size, ppd):
     mips, src, _ = prepare(module, img)
     with torch.no_grad():
         out = glare(module, mips, src, params).cpu().numpy()
-    fmap, _ = m.flip_map(out, ref, ppd)
+    fmap, _ = m.flip_map(out, ref, ppd, floor=m.flip_floor(EPS))   # exposure floor: decision log 2026-11-03
     pos_out = np.maximum(out, 0)
     h, w = img.shape[:2]
     records = []
@@ -182,6 +197,28 @@ def summarize(records):
     return cell
 
 
+def strongest_baselines(run):
+    """Phase 0 point-grid summaries: per baseline, whichever fit (squared or absolute log
+    loss, metrics.LOG_LOSSES) has the lower mean FLIP over the H bins, i.e. the strongest
+    tuned baseline (decision log 2026-11-03). The absolute-loss pyramid fit turns bloom off,
+    so this is the squared-loss pyramid today. Returns (summaries, fit loss per baseline,
+    the squared-loss gap_eval for the shared settings)."""
+    gaps = {loss: json.loads((ROOT / "outputs" / "01_gap_study" / run / "eval" /
+                              f"gap_eval{m.fit_suffix(loss)}.json").read_text())
+            for loss in m.LOG_LOSSES}
+    settings = ("window_px", "flip_ppd", "eps")
+    for loss, g in gaps.items():
+        assert g.get("fit_loss", "sq") == loss, f"gap_eval for {loss} wasn't fitted with it"
+        assert all(g[k] == gaps["sq"][k] for k in settings), "gap evals differ in settings"
+
+    def mean_flip(loss, b):
+        return np.mean([gaps[loss]["summary"]["synthetic"][b][c]["flip"]
+                        for c in ("centre", "mid", "edge")])
+
+    fit = {b: min(gaps, key=lambda loss: mean_flip(loss, b)) for b in COMPARE}  # ties: sq
+    return ({b: gaps[fit[b]]["summary"]["synthetic"][b] for b in COMPARE}, fit, gaps["sq"])
+
+
 def verdict(model, phase0):
     pyramid, fft = phase0["pyramid"], phase0["fft_centre"]
     beats = all(model[b]["flip"] < pyramid[b]["flip"] for b in ("centre", "mid", "edge"))
@@ -202,51 +239,11 @@ def table(rows):
     return "\n".join(lines)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--run", choices=RUNS, default="default")
-    ap.add_argument("--steps", type=int, default=2000)
-    ap.add_argument("--lr", type=float, default=1e-2)
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--init", choices=["phase1", "fitted"], default="phase1")
-    args = ap.parse_args()
-    tag = ("" if args.init == "phase1" else f"_{args.init}") + \
-          ("" if args.lr == ap.get_default("lr") else f"_lr{args.lr:g}")
-
-    split = tomllib.loads((ROOT / "configs" / "split.toml").read_text())["phase2_points"]
-    with np.load(ROOT / psf_bank_path(args.run)) as z:
-        bank = {k: z[k] for k in z.files}
-    cam = json.loads(str(bank["config"]))["camera"]
-    shape = (cam["height_px"], cam["width_px"], 3)
-    gap = json.loads((ROOT / "outputs" / "01_gap_study" / args.run / "eval" / "gap_eval.json")
-                     .read_text())
-    size, ppd = gap["window_px"], gap["flip_ppd"]
-    assert size == 2 * bank["psf"].shape[1], "window differs from the gap study's"
-    assert gap["eps"] == EPS, "log eps differs from the gap study's"
-    phase0 = {b: gap["summary"]["synthetic"][b] for b in COMPARE}
-
-    torch.manual_seed(args.seed)
-    gen = torch.Generator().manual_seed(args.seed)
-    rng = np.random.default_rng(args.seed)
-    spy.set_allow_torch_fallback(True)
-    device = spy.create_torch_device(type=spy.DeviceType.vulkan, include_paths=[ROOT / "slang"])
-    module = spy.Module.load_from_file(device, "train_glare.slang")
-
-    frames = train_frames(bank, *split["train_grid"])
-    data = [prepare(module, *render(bank, sel, shape)) for sel in frames]
-    n_levels = len(data[0][0])                      # pyramid levels + the full-resolution one
-    if args.init == "fitted":
-        fit = json.loads((ROOT / "outputs" / "01_gap_study" / args.run / "fits" / "pyramid_fit.json")
-                         .read_text())["best"]
-        init = fitted_pyramid_init(gen, n_levels, fit)
-    else:
-        phase1 = np.load(PHASE1_DIR / "train_pyramid_params.npy")
-        assert phase1.size == (n_levels - 1) * PARAM_COUNT, "Phase 1 weights have another level count"
-        init = torch.cat([torch.from_numpy(phase1), init_params(gen)])
-    print(f"{len(frames)} training frames ({min(map(len, frames))}-{max(map(len, frames))} "
-          f"sources), {n_levels} levels, {init.numel()} parameters")
-
-    # Train first (slangpy: the first upsample_chain_pass call must carry gradients)
+def train(module, data, val_data, init, args, rng):
+    """Adam on the log loss, one random training frame per step. The curve logs the mean loss
+    over the training and the validation frames at step 0 (after the first gradient call,
+    before any update) and every LOG_EVERY steps. slangpy: the first upsample_chain_pass call
+    must carry gradients."""
     params = init.clone().cuda().requires_grad_(True)
     optimizer = torch.optim.Adam([params], lr=args.lr)
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.steps)
@@ -257,43 +254,118 @@ def main():
         optimizer.zero_grad()
         out = glare(module, mips, src, params)
         assert out.grad_fn is not None, "slangpy dropped autograd (see train_pyramid.py)"
-        loss = log_loss(out, ref)
+        loss = log_loss(out, ref, args.loss)
         loss.backward()
         if step == 1:                               # after the first gradient call, before any update
-            curve.append({"step": 0, "train_loss": train_loss(module, data, params)})
-            print(f"step     0: train loss {curve[0]['train_loss']:.3e}", flush=True)
+            curve.append({"step": 0, "train_loss": frames_loss(module, data, params, args.loss),
+                          "val_loss": frames_loss(module, val_data, params, args.loss)})
+            print(f"step     0: train loss {curve[0]['train_loss']:.3e}  "
+                  f"val loss {curve[0]['val_loss']:.3e}", flush=True)
         optimizer.step()
         schedule.step()
         if step % LOG_EVERY == 0 or step == args.steps:
-            full = train_loss(module, data, params)
-            curve.append({"step": step, "loss": loss.item(), "train_loss": full})
-            print(f"step {step:5d}: train loss {full:.3e}  (this frame {loss.item():.3e}, "
-                  f"{time.perf_counter() - t0:.0f}s)", flush=True)
-    seconds = time.perf_counter() - t0
+            full = frames_loss(module, data, params, args.loss)
+            val = frames_loss(module, val_data, params, args.loss)
+            curve.append({"step": step, "loss": loss.item(), "train_loss": full, "val_loss": val})
+            print(f"step {step:5d}: train loss {full:.3e}  val loss {val:.3e}  (this frame "
+                  f"{loss.item():.3e}, {time.perf_counter() - t0:.0f}s)", flush=True)
+    return params.detach(), curve, time.perf_counter() - t0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--run", choices=RUNS, default="default")
+    ap.add_argument("--steps", type=int, default=2000)
+    ap.add_argument("--lr", type=float, default=1e-4)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--loss", choices=["abs", "sq"], default="abs",
+                    help="absolute or squared log error (decision log 2026-11-03)")
+    ap.add_argument("--init", choices=["fitted", "neutral"], default="fitted")
+    ap.add_argument("--t-pass", type=float, default=T_PASS,
+                    help="--init fitted: blend of the levels URP leaves unused")
+    ap.add_argument("--rescore", action="store_true",
+                    help="don't train: re-evaluate this run's saved weights (fits/) and keep its "
+                         "training curve")
+    args = ap.parse_args()
+    tag = f"_{ARCH}_{args.loss}_{args.init}_lr{args.lr:g}"
+    if args.init == "fitted" and args.t_pass != T_PASS:
+        tag += f"_tpass{args.t_pass:g}"
+
+    split = tomllib.loads((ROOT / "configs" / "split.toml").read_text())["phase2_points"]
+    with np.load(ROOT / psf_bank_path(args.run)) as z:
+        bank = {k: z[k] for k in z.files}
+    cam = json.loads(str(bank["config"]))["camera"]
+    shape = (cam["height_px"], cam["width_px"], 3)
+    phase0, phase0_fit, gap = strongest_baselines(args.run)
+    size, ppd = gap["window_px"], gap["flip_ppd"]
+    assert size == 2 * bank["psf"].shape[1], "window differs from the gap study's"
+    assert gap["eps"] == EPS, "log eps differs from the gap study's"
+
+    torch.manual_seed(args.seed)
+    gen = torch.Generator().manual_seed(args.seed)
+    rng = np.random.default_rng(args.seed)
+    spy.set_allow_torch_fallback(True)
+    device = spy.create_torch_device(type=spy.DeviceType.vulkan, include_paths=[ROOT / "slang"])
+    module = spy.Module.load_from_file(device, "train_glare.slang")
+
+    frames = train_frames(bank, *split["train_grid"])
+    val_sel = frames.pop(split["val_frame"])
+    val_img, val_ref = render(bank, val_sel, shape)
+    val_data = [prepare(module, val_img, val_ref)]
+    data = [prepare(module, *render(bank, sel, shape)) for sel in frames]
+    n_levels = len(data[0][0])                      # pyramid levels + the full-resolution one
+    if args.init == "fitted":
+        fit = json.loads((ROOT / "outputs" / "01_gap_study" / args.run / "fits" / "pyramid_fit.json")
+                         .read_text())["best"]
+        init = fitted_pyramid_init(gen, n_levels, fit, args.t_pass)
+    else:
+        init = torch.cat([init_params(gen) for _ in range(n_levels)])
+    print(f"{len(frames)} training frames ({min(map(len, frames))}-{max(map(len, frames))} "
+          f"sources), 1 validation frame ({len(val_sel)} sources), {n_levels} levels, "
+          f"{init.numel()} parameters")
+
+    fits = Path(run_dir(EXPERIMENT, args.run, "fits"))
+    eval_path = Path(run_dir(EXPERIMENT, args.run, "eval")) / f"train_points{tag}_eval.json"
+    if args.rescore:
+        params = torch.from_numpy(np.load(fits / f"train_points{tag}_params.npy")).cuda()
+        old = json.loads(eval_path.read_text())
+        assert old["args"]["steps"] == args.steps and old["args"]["seed"] == args.seed, (
+            "pass the run's own --steps / --seed")
+        curve, seconds = old["curve"], old["seconds"]
+    else:
+        params, curve, seconds = train(module, data, val_data, init, args, rng)
 
     test_img = read_hdr(str(ROOT / "data" / "inputs" / "pointgrid.exr"))[..., :3]
     test_ref = read_hdr(str(ROOT / REFS[args.run] / "pointgrid_ref_exact.exr"))[..., :3]
     test_pos = [tuple(p) for p in bank["pos_px"][bank["split"] == "test"]]
+    val_pos = [tuple(p) for p in bank["pos_px"][val_sel]]
     results = {}
-    for name, p in (("init", init.cuda()), ("trained", params.detach())):
+    for name, p in (("init", init.cuda()), ("trained", params)):
         records, negative = evaluate(module, p, test_img, test_ref, test_pos, size, ppd)
+        val_records, _ = evaluate(module, p, val_img, val_ref, val_pos, size, ppd)
         results[name] = {"summary": summarize(records), "negative_fraction": negative,
-                         "records": records}
+                         "records": records,
+                         "val": {"flip": float(np.mean([r["flip"] for r in val_records])),
+                                 "log_mse": float(np.mean([r["log_mse"] for r in val_records])),
+                                 "loss": frames_loss(module, val_data, p, args.loss),
+                                 "records": val_records}}
     trained = results["trained"]["summary"]
     answers = verdict(trained, phase0)
 
-    fits = Path(run_dir(EXPERIMENT, args.run, "fits"))
     export = Path(run_dir(EXPERIMENT, args.run, "export"))
-    np.save(fits / f"train_points{tag}_params.npy", params.detach().cpu().numpy())
-    params.detach().cpu().numpy().astype("<f4").tofile(export / f"glare_params{tag}.bytes")
-    (Path(run_dir(EXPERIMENT, args.run, "eval")) / f"train_points{tag}_eval.json").write_text(json.dumps({
-        "environment": environment(device), "args": vars(args), "eps": EPS,
+    np.save(fits / f"train_points{tag}_params.npy", params.cpu().numpy())
+    params.cpu().numpy().astype("<f4").tofile(export / f"glare_params{tag}.bytes")
+    eval_path.write_text(json.dumps({
+        "environment": environment(device), "args": vars(args), "eps": EPS, "flip_floor": m.flip_floor(EPS),
         "intensity": INTENSITY, "window_px": size, "flip_ppd": ppd, "levels": n_levels,
-        "param_count": PARAM_COUNT, "frames": frames, "seconds": seconds, "curve": curve,
-        "phase0": phase0, "answers": answers, "results": results}, indent=2))
+        "param_count": PARAM_COUNT, "frames": frames, "val_frame": val_sel, "seconds": seconds,
+        "curve": curve,
+        "phase0": phase0, "phase0_fit": phase0_fit, "answers": answers, "results": results},
+        indent=2))
 
-    rows = [(COMPARE[b], phase0[b]) for b in COMPARE]
-    start = {"phase1": "Phase 1 weights", "fitted": "fitted pyramid"}[args.init]
+    rows = [(f"{COMPARE[b]} ({phase0_fit[b]} fit)", phase0[b]) for b in COMPARE]
+    start = {"fitted": f"fitted pyramid, energy-normalised, t_pass {args.t_pass:g}",
+             "neutral": "t = 0.5"}[args.init]
     rows += [(f"Init ({start}, before training)", results["init"]["summary"]),
              ("**Trained (this run)**", trained)]
     report = (f"# Phase 2 step 1: Phase 1 architecture on exact point-light PSFs ({args.run})\n\n"
@@ -302,8 +374,14 @@ def main():
               f"(n = {trained['centre']['n']}), mid (n = {trained['mid']['n']}), edge >= 2/3 "
               f"(n = {trained['edge']['n']}). Negative output texels: "
               f"{results['trained']['negative_fraction']:.2%}. Learning rate {args.lr:g}; "
-              f"training loss (all {len(data)} frames) {curve[0]['train_loss']:.4f} at step 0, "
+              f"{args.loss} log loss, training ({len(data)} frames) "
+              f"{curve[0]['train_loss']:.4f} at step 0, "
               f"{curve[-1]['train_loss']:.4f} at step {curve[-1]['step']}.\n\n"
+              f"Validation frame ({len(val_sel)} sources; selects between runs, decision log "
+              f"2026-11-03): mean FLIP {results['init']['val']['flip']:.4f} at init, "
+              f"**{results['trained']['val']['flip']:.4f}** trained; {args.loss} log loss "
+              f"{results['init']['val']['loss']:.4f} at init, "
+              f"{results['trained']['val']['loss']:.4f} trained.\n\n"
               f"Pre-registered questions (decision log 2026-10-31):\n"
               f"- (1) beats the fitted pyramid in every bin: **{answers['beats_fitted_pyramid']}**\n"
               f"- (2) closes the edge gap (edge FLIP < {phase0['fft_centre']['edge']['flip']:.3f} "

@@ -1,6 +1,7 @@
 // Phase 1, step 5: run the glare pyramid on the frames exported by
 // experiments/02_slang_plumbing/unity_parity.py and write every mip and upsample level back
-// as raw float32 RGBA (row 0 = texel y = 0, no header) for the Python comparison.
+// as raw float32 RGBA (row 0 = texel y = 0, no header) for the Python comparison. Weights with
+// one level more than the pyramid (Phase 2) also run the full-resolution level (_unity_full).
 using System;
 using System.IO;
 using Unity.Collections;
@@ -12,7 +13,7 @@ static class ParityHarness
 {
     const string ShaderDir = "Assets/NeuralGlare/Shaders/";
     const string WeightsPath = "Assets/NeuralGlare/Data/glare_params.bytes";
-    const int ParamCount = 82;      // LevelMLP.PARAM_COUNT = (2*16 + 16) + (16*2 + 2)
+    const int ParamCount = 65;      // LevelMLP.PARAM_COUNT = (2*16 + 16) + (16*1 + 1)
     const int MaxIterations = 6;    // URPBloomParams.max_iterations in train_pyramid.py
 
     [Serializable] class Frame { public string name; public int width; public int height; }
@@ -66,12 +67,16 @@ static class ParityHarness
         input.Apply(updateMipmaps: false);
 
         Vector2Int[] sizes = MipSizes(frame.width, frame.height);
-        if (sizes.Length - 1 != levels)
-            throw new InvalidDataException($"{frame.name}: {sizes.Length - 1} upsample levels, weights have {levels}");
-
         int n = sizes.Length - 1;
+        // Phase 1 weights: one network per pyramid level. Phase 2 weights: one more, for the
+        // full-resolution level whose "mip" is the input frame (train_points.py glare()).
+        bool fullLevel = levels == n + 1;
+        if (levels != n && !fullLevel)
+            throw new InvalidDataException($"{frame.name}: {n} upsample levels, weights have {levels}");
+
         var mips = new RenderTexture[n + 1];
         var ups = new RenderTexture[n];        // ups[n] is mips[n]
+        RenderTexture full = null;
         try
         {
             // Downsample: mip 0 = prefilter, mip i = BlurV(BlurH(mip i-1)) at half the size
@@ -96,15 +101,27 @@ static class ParityHarness
                 Dispatch(upsample, mips[k], ups[k]);
             }
 
+            // Full-resolution level: the same kernel, reading the input frame and up[0]
+            if (fullLevel)
+            {
+                full = Target(new Vector2Int(frame.width, frame.height));
+                upsample.SetTexture(0, "_SourceLow", ups[0]);
+                upsample.SetInt("_ParamOffset", n * ParamCount);
+                Dispatch(upsample, input, full);
+            }
+
             for (int i = 0; i <= n; ++i)
                 WriteFloats(mips[i], Path.Combine(ParityDir, $"{frame.name}_unity_mip{i}.f32"));
             for (int k = 0; k < n; ++k)
                 WriteFloats(ups[k], Path.Combine(ParityDir, $"{frame.name}_unity_up{k}.f32"));
+            if (fullLevel)
+                WriteFloats(full, Path.Combine(ParityDir, $"{frame.name}_unity_full.f32"));
         }
         finally
         {
             foreach (RenderTexture rt in mips) if (rt != null) rt.Release();
             foreach (RenderTexture rt in ups) if (rt != null) rt.Release();
+            if (full != null) full.Release();
             UnityEngine.Object.DestroyImmediate(input);
         }
     }

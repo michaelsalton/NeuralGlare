@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass, replace
 import numpy as np
 from scipy.optimize import minimize
 
-from neuralglare.eval.metrics import log_loss
+from neuralglare.eval.metrics import LOG_LOSSES, fit_suffix, log_loss
 from neuralglare.io import luminance, read_hdr
 from neuralglare.paths import REFS, RUNS, run_dir
 
@@ -223,19 +223,20 @@ def sample_pixels(image, ref, basis, rng, fraction):
     return image[ys, xs], ref[ys, xs], bases
 
 
-def _fit_loss(x, n, samples, p, eps):
+def _fit_loss(x, n, samples, p, eps, loss=log_loss):
     """Joint log loss of a (scatter UI, log10 intensity) guess with an n-level pyramid."""
     scatter_ui, log_intensity = x
     _, _, s = shader_constants(replace(p, scatter=scatter_ui))
     w = level_weights(s, n)
-    return np.mean([log_loss(i + 10 ** log_intensity * np.tensordot(w, b[:n], axes=1), r, eps)
+    return np.mean([loss(i + 10 ** log_intensity * np.tensordot(w, b[:n], axes=1), r, eps)
                     for i, r, b in samples])
 
 
 def fit(pairs, thresholds=(0.0, 0.9), downscales=("half",),
-        max_levels=8, eps=1e-3, fraction=1 / 16, seed=0):
+        max_levels=8, eps=1e-3, fraction=1 / 16, seed=0, loss="sq"):
     """Joint fit of URP bloom to (image, reference) pairs. Grid over threshold, downscale
-    and max_iterations; Nelder-Mead over (scatter, log10 intensity). Tint stays white."""
+    and max_iterations; Nelder-Mead over (scatter, log10 intensity). Tint stays white.
+    `loss`: "sq" (squared) or "abs" (absolute) log error, metrics.LOG_LOSSES."""
     results = []
     for threshold in thresholds:
         for downscale in downscales:
@@ -246,7 +247,7 @@ def fit(pairs, thresholds=(0.0, 0.9), downscales=("half",),
             n_available = min(b.shape[0] for _, _, b in samples)
 
             for n in range(2, n_available + 1):
-                res = minimize(_fit_loss, x0=(0.7, -1.0), args=(n, samples, p, eps), method="Nelder-Mead",
+                res = minimize(_fit_loss, x0=(0.7, -1.0), args=(n, samples, p, eps, LOG_LOSSES[loss]), method="Nelder-Mead",
                                bounds=[(0.0, 1.0), (-4.0, 1.0)],
                                options={"xatol": 1e-3, "fatol": 1e-7})
                 row = {"threshold": threshold, "downscale": downscale, "max_iterations": n,
@@ -268,8 +269,12 @@ def main():
                     help="config: picks the references and output folder")
     ap.add_argument("--inputs", nargs="+", required=True, help="input EXRs; globs are expanded")
     ap.add_argument("--eps", type=float, default=1e-3)
+    ap.add_argument("--loss", choices=sorted(LOG_LOSSES), default="sq",
+                    help="log error to fit: squared, or absolute (decision log 2026-11-03); "
+                         "abs writes pyramid_fit_abs.json")
     args = ap.parse_args()
     refs = REFS[args.run]
+    loss = LOG_LOSSES[args.loss]
 
     paths = sorted(f for pattern in args.inputs for f in glob.glob(pattern))
     names = [os.path.splitext(os.path.basename(f))[0] for f in paths]
@@ -280,24 +285,24 @@ def main():
     if placeholder:
         print("WARNING: references use PLACEHOLDER lens parameters. Do not report these fits.\n")
 
-    best, table = fit(pairs, eps=args.eps)
+    best, table = fit(pairs, eps=args.eps, loss=args.loss)
 
     per_image = {}                                   # exact re-score on full frames
     for n, (img, ref) in zip(names, pairs):
         comp, _ = pyramid_bloom(img, best)
         e_in = img.astype(np.float64).sum()
-        per_image[n] = {"loss": log_loss(comp, ref, args.eps),
-                        "loss_no_bloom": log_loss(img, ref, args.eps),
+        per_image[n] = {"loss": loss(comp, ref, args.eps),
+                        "loss_no_bloom": loss(img, ref, args.eps),
                         "energy_relative": float(comp.astype(np.float64).sum() / e_in - 1)}
         print(f"{n:<45} loss {per_image[n]['loss']:.4f} "
               f"(no bloom {per_image[n]['loss_no_bloom']:.4f}), "
               f"energy {per_image[n]['energy_relative']:+.1%}")
 
-    out = f"{run_dir('01_gap_study', args.run, 'fits')}/pyramid_fit.json"
+    out = f"{run_dir('01_gap_study', args.run, 'fits')}/pyramid_fit{fit_suffix(args.loss)}.json"
     with open(out, "w") as fh:
         json.dump({"run": args.run, "urp_version": URP_VERSION, "numpy": np.__version__,
                    "placeholder_references": placeholder, "inputs": names, "eps": args.eps,
-                   "best": asdict(best), "grid": table, "per_image": per_image}, fh, indent=2)
+                   "loss": args.loss, "best": asdict(best), "grid": table, "per_image": per_image}, fh, indent=2)
     print(f"\nbest: {best}\nwrote {out}")
 
 

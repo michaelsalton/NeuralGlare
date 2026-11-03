@@ -34,7 +34,7 @@ from neuralglare.io import read_hdr
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "outputs" / "02_slang_plumbing"
-IN, HIDDEN, OUT = 2, 16, 2          # must match LevelMLP in glare.slang
+IN, HIDDEN, OUT = 2, 16, 1          # must match LevelMLP in glare.slang
 VIEWS = ("center", "mid", "corner")
 EPS = 1e-3                          # same ε as the Phase 0 log loss
 
@@ -63,11 +63,12 @@ def load_split(split, p, scatter):
 
 def init_params(gen):
     """Hidden layer: He init, so the ReLU features start well spread. Output layer: small
-    weights and bias 0.5, so every level starts near w = (0.5, 0.5) instead of at random."""
+    weights and bias 0, so every level starts near t = sigmoid(0) = 0.5, w = (0.5, 0.5),
+    instead of at random."""
     w1 = torch.randn(HIDDEN, IN, generator=gen) * np.sqrt(2.0 / IN)
     b1 = torch.zeros(HIDDEN)
     w2 = torch.randn(OUT, HIDDEN, generator=gen) * np.sqrt(1.0 / HIDDEN) * 0.1
-    b2 = torch.full((OUT,), 0.5)
+    b2 = torch.zeros(OUT)
     return torch.cat([w1.flatten(), b1, w2.flatten(), b2])
 
 

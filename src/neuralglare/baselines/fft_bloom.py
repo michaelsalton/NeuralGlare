@@ -16,7 +16,7 @@ import numpy as np
 import scipy
 import torch
 
-from neuralglare.eval.metrics import log_loss
+from neuralglare.eval.metrics import LOG_LOSSES, fit_suffix, log_loss
 from neuralglare.io import read_hdr
 from neuralglare.paths import REFS, RUNS, psf_path, run_dir
 from neuralglare.reference.convolve import (
@@ -67,11 +67,13 @@ def conv_same_torch(image, kernel):
     return full[:, y0:y0 + H, x0:x0 + W].permute(1, 2, 0)
 
 
-def fit_uniform_kernel(pairs, scatters, eta, init, eps=1e-3, steps=200, lr=0.1, device="cuda"):
+def fit_uniform_kernel(pairs, scatters, eta, init, eps=1e-3, steps=200, lr=0.1, device="cuda",
+                       loss="sq"):
     """Best single diffraction kernel for all (image, reference) pairs.
 
     Softmax over texels per channel (so the kernel is >= 0 and sums to 1, like a PSF),
-    initialised from `init`, fitted with Adam to the mean log loss. Runs in float64.
+    initialised from `init`, fitted with Adam to the mean log loss: squared ("sq") or
+    absolute ("abs") log error, as metrics.LOG_LOSSES. Runs in float64.
     Returns (kernel (kh, kw, C) float32, loss per step).
     """
     torch.manual_seed(0)        # nothing is random today; keeps any future change reproducible
@@ -90,10 +92,11 @@ def fit_uniform_kernel(pairs, scatters, eta, init, eps=1e-3, steps=200, lr=0.1, 
         total = 0.0
         for img, log_ref, scat in data:
             pred = (1.0 - eta) * conv_same_torch(img, kernel) + scat
-            # same as metrics.log_loss, in torch so it can be differentiated
-            loss = torch.mean((torch.log(pred + eps) - log_ref) ** 2) / len(data)
-            loss.backward(retain_graph=True)
-            total += loss.item()
+            # same as metrics.LOG_LOSSES[loss], in torch so it can be differentiated
+            d = torch.log(pred + eps) - log_ref
+            term = torch.mean(d.abs() if loss == "abs" else d ** 2) / len(data)
+            term.backward(retain_graph=True)
+            total += term.item()
         opt.step()
         history.append(total)
         if step % 20 == 0 or step == steps - 1:
@@ -102,14 +105,14 @@ def fit_uniform_kernel(pairs, scatters, eta, init, eps=1e-3, steps=200, lr=0.1, 
     return kernel.detach().cpu().numpy().astype(np.float32), history
 
 
-def evaluate(names, pairs, scatters, kernel, ps, eps):
+def evaluate(names, pairs, scatters, kernel, ps, eps, loss=log_loss):
     """Per-image log loss, no-bloom loss and energy error of one uniform kernel."""
     per_image = {}
     for n, (img, ref), s in zip(names, pairs, scatters):
         out = fft_bloom(img, kernel, ps, scatter=s)
         e_in = img.astype(np.float64).sum()
-        per_image[n] = {"loss": log_loss(out, ref, eps),
-                        "loss_no_bloom": log_loss(img, ref, eps),
+        per_image[n] = {"loss": loss(out, ref, eps),
+                        "loss_no_bloom": loss(img, ref, eps),
                         "energy_relative": float(out.astype(np.float64).sum() / e_in - 1)}
         print(f"  {n:<45} loss {per_image[n]['loss']:.2e} "
               f"(no bloom {per_image[n]['loss_no_bloom']:.4f}), "
@@ -126,6 +129,9 @@ def main():
     ap.add_argument("--eps", type=float, default=1e-3)
     ap.add_argument("--steps", type=int, default=200)
     ap.add_argument("--lr", type=float, default=0.1)
+    ap.add_argument("--loss", choices=sorted(LOG_LOSSES), default="sq",
+                    help="log error to fit: squared, or absolute (decision log 2026-11-03); "
+                         "abs writes fft_bloom_abs.json / fft_kernels_abs.npz")
     args = ap.parse_args()
     psf, refs = psf_path(args.run), REFS[args.run]
 
@@ -149,21 +155,22 @@ def main():
     print(f"\nfitting best-fit uniform kernel on {device}...")
     kernels["best_fit"], history = fit_uniform_kernel(
         pairs, scatters, ps.scatter.energy_fraction, kernels["centre"],
-        eps=args.eps, steps=args.steps, lr=args.lr, device=device)
+        eps=args.eps, steps=args.steps, lr=args.lr, device=device, loss=args.loss)
     variants = {}
     for name, k in kernels.items():
         print(f"\n{name} PSF")
-        variants[name] = evaluate(names, pairs, scatters, k, ps, args.eps)
+        variants[name] = evaluate(names, pairs, scatters, k, ps, args.eps, LOG_LOSSES[args.loss])
         print(f"  mean loss {variants[name]['mean_loss']:.2e}")
 
     out_dir = run_dir("01_gap_study", args.run, "fits")
-    out = f"{out_dir}/fft_bloom.json"
-    kernel_path = f"{out_dir}/fft_kernels.npz"
+    out = f"{out_dir}/fft_bloom{fit_suffix(args.loss)}.json"
+    kernel_path = f"{out_dir}/fft_kernels{fit_suffix(args.loss)}.npz"
     np.savez_compressed(kernel_path, **kernels)
     with open(out, "w") as fh:
         json.dump({"run": args.run, "psf": psf, "placeholder": ps.placeholder,
                    "numpy": np.__version__,
                     "scipy": scipy.__version__, "inputs": names, "eps": args.eps,
+                    "loss": args.loss,
                     "kernels": os.path.basename(kernel_path), "variants": variants,
                     "torch": torch.__version__,
                    "fit": {"steps": args.steps, "lr": args.lr, "device": device,

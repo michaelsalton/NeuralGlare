@@ -12,3 +12,6 @@ test = ["goegap_road_4k"]   # sun at 2.7e5: brighter than any training frame
 train_grid = [9, 16]        # rows, cols of a jittered grid: one position per cell
 train_seed = 0
 test = "pointgrid"          # the Phase 0 7x5 grid (data/inputs/manifest.json), as in the gap study
+val_frame = 4               # of train_points.py's 9 frames: (row mod 3, col mod 3) = (1, 1), 15
+                            # sources. Held out of training, used only to select between runs
+                            # (decision log 2026-11-03); the test grid is never used to select

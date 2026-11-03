@@ -1,13 +1,15 @@
 # Gap study (psf_quick.npz, window 126 px)
 
+**Decision: PROCEED**. Best uniform kernel: FFT, centre PSF; point-grid edge/centre FLIP 4.80x (required >= 2.0x); HDRI crops 7.84x (required > 1). Point-grid reference is grid-interpolated (10-41% PSF error between nodes): not a valid decision; pass --pointgrid-ref.
+
 ### Point grid (same source, only H changes)
 
 | Baseline | FLIP centre | FLIP mid | FLIP edge | edge/centre | log-MSE centre | log-MSE mid | log-MSE edge | edge/centre | energy edge |
 |---|---|---|---|---|---|---|---|---|---|
-| FFT, centre PSF | 0.0471 | 0.0912 | 0.2000 | 4.25x | 6.76e-03 | 4.39e-02 | 1.89e-01 | 27.92x | -0.00% |
-| FFT, best-fit PSF | 0.1015 | 0.1298 | 0.2143 | 2.11x | 4.27e-02 | 7.84e-02 | 2.20e-01 | 5.16x | -0.00% |
-| Pyramid bloom (fitted) | 0.2817 | 0.2812 | 0.2804 | 1.00x | 7.59e-01 | 7.10e-01 | 4.76e-01 | 0.63x | +1.78% |
-| No bloom | 0.2928 | 0.2925 | 0.2927 | 1.00x | 8.79e-01 | 9.27e-01 | 1.13e+00 | 1.29x | -0.00% |
+| FFT, centre PSF | 0.0285 | 0.0572 | 0.1366 | 4.80x | 6.76e-03 | 4.39e-02 | 1.89e-01 | 27.92x | -0.00% |
+| FFT, best-fit PSF | 0.0730 | 0.0895 | 0.1471 | 2.02x | 4.27e-02 | 7.84e-02 | 2.20e-01 | 5.16x | -0.00% |
+| Pyramid bloom (fitted) | 0.1830 | 0.1849 | 0.2036 | 1.11x | 7.59e-01 | 7.10e-01 | 4.76e-01 | 0.63x | +1.78% |
+| No bloom | 0.1851 | 0.1891 | 0.2170 | 1.17x | 8.79e-01 | 9.27e-01 | 1.13e+00 | 1.29x | -0.00% |
 
 Medians over windows. Windows per bin: {'centre': 5, 'mid': 16, 'edge': 14}. Bins: centre H < 1/3, mid 1/3-2/3, edge >= 2/3.
 
