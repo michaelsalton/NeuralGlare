@@ -88,12 +88,13 @@ int4 level_mlp_sizes()
     return int4(LevelMLP.IN_SIZE, LevelMLP.HIDDEN_SIZE, LevelMLP.OUT_SIZE, LevelMLP.PARAM_COUNT);
 }
 
-// The blend weights at screen positions uv for a frame of `size` (unused by MLP(uv); see blend).
+// The tap weights at screen positions uv, in upsample()'s order: mip(x), mip(x + o), mip(x - o),
+// up(low)(x). size is unused (the weights see uv only); it stays so the Python callers don't change.
 [Differentiable]
-float2 filter_weights(float2 uv, int2 size, DiffTensor<float, 1> params)
+float4 filter_weights(float2 uv, int2 size, DiffTensor<float, 1> params)
 {
     TensorParams p = { params };
-    float t = blend(uv, size, p, 0);
-    return float2(1.0 - t, t);                // as upsample() in glare.slang
+    float w[TAPS] = weights(uv, p, 0);
+    return float4(w[0], w[1], w[2], w[3]);
 }
 

@@ -3,6 +3,8 @@
 Model: the Phase 1 pyramid (2 taps per level, grey weights, input uv) plus one level at full
 resolution, whose "mip" is the input frame itself:
     out = (1 - t(uv)) * input + t(uv) * bilinear(up[0]),   t = sigmoid(MLP(uv))
+(Step 2, field_aligned_offsets: every level has 4 taps, w = softmax(MLP(uv)) over mip(x),
+mip(x + o), mip(x - o) and the level below, o = H * d_hat texels; glare.slang.)
 Phase 1's up[0] is half resolution, while the lens reference is the full frame convolved with
 the PSF, most of whose energy sits in a core a few pixels wide. The input path carries the core,
 the pyramid the halo. Same upsample kernel, one more network in the weight buffer. Every level
@@ -75,10 +77,13 @@ from train_levels import environment, init_params, level_mlp
 from train_pyramid import level_params, slang_mips
 
 EXPERIMENT = "03_train_network"
-STUDIES = ("setup", "baseline", "radial_input")   # add one per ablation
-ARCH = "lerp"                       # glare.slang's level form; part of every output name
+STUDIES = ("setup", "baseline", "radial_input", "field_aligned_offsets")   # add one per ablation
+ARCH = "offsets"                    # glare.slang's level form; part of every output name
                                     # (lerp: MLP(uv), Step 1, current best; lerp_h: MLP(H),
-                                    # radial_input, rejected, decision log 2026-11-04)
+                                    # radial_input, rejected; offsets: 4 taps, softmax(MLP(uv)),
+                                    # field_aligned_offsets; decision log 2026-11-04)
+OFFSET_SHARE = 0.01                 # each offset tap's share of the mip's weight at init
+                                    # (decision log 2026-11-04)
 T_PASS = 1e-4                       # default blend of a pass-through level (sigmoid never
                                     # reaches 0); its gradient carries t(1 - t), so a tiny t
                                     # nearly freezes the level (decision log 2026-11-02)
@@ -112,8 +117,8 @@ def train_frames(bank, rows, cols):
 
 
 def fitted_pyramid_init(gen, net, n_levels, fit, t_pass=T_PASS):
-    """Phase 0's fitted pyramid bloom as a constant blend per level (output layer 0, bias
-    logit(t)). URP with m mips: up[k] = lerp(mip_k, up(up[k+1]), s) for k < m-1,
+    """Phase 0's fitted pyramid bloom as a constant blend per level (output layer 0, biases
+    the log of the tap weights, the low tap's = t). URP with m mips: up[k] = lerp(mip_k, up(up[k+1]), s) for k < m-1,
     up[m-1] = mip_{m-1}: t = s, then t = t_pass. URP's last step out = input + I * up(up[0])
     adds light; the energy-conserving lerp with the same shape is that divided by 1 + I,
     t = I / (1 + I). Hidden layers stay random so uv can still be learned."""
@@ -129,7 +134,12 @@ def fitted_pyramid_init(gen, net, n_levels, fit, t_pass=T_PASS):
     for t in blends:
         w = init_params(gen, net)
         w[hidden_end:-net.outputs] = 0                  # W2: output independent of uv
-        w[-net.outputs:] = float(np.log(t / (1 - t)))   # b2 = logit(t)
+        # b2 = log of the target weights: softmax(log w) = w, since they sum to 1. The low tap
+        # keeps t; the offset taps take OFFSET_SHARE each of the mip's 1 - t
+        assert net.outputs == 4, "init written for glare.slang's 4 taps"
+        e = OFFSET_SHARE
+        w[-net.outputs:] = torch.tensor(np.log([(1 - t) * (1 - 2 * e), (1 - t) * e,
+                                                (1 - t) * e, t]), dtype=w.dtype)
         nets.append(w)
     return torch.cat(nets)
 
@@ -234,7 +244,7 @@ def save_views(module, params, img, positions, path):
                           device="cuda")
         blend = np.stack([module.filter_weights(uv=uv, size=spy.int2(w, h),
                                                 params=level_params(module, params, k))
-                          [:, 1].cpu().numpy().reshape(BLEND_GRID)
+                          [:, 3].cpu().numpy().reshape(BLEND_GRID)     # the low tap: t
                           for k in range(params.numel() // level_mlp(module).param_count)])
     pos = view_sources(positions, w, h)
     crops = np.stack([view_crop(out, x, y) for x, y in pos])

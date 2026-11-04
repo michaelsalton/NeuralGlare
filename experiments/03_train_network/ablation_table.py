@@ -35,10 +35,14 @@ BINS = ("centre", "mid", "edge")
 ABLATIONS = [
     {"label": "Step 1 baseline: MLP(uv)", "study": "baseline",
      "tag": "_lerp_abs_fitted_lr0.0001", "against": None, "mlp": (2, 16, 1), "extra": "",
-     "decision": "current best (decision log 2026-11-03)"},
+     "decision": "current best 2026-11-03, superseded 2026-11-04"},
     {"label": "Radial input: MLP(H)", "study": "radial_input",
      "tag": "_lerp_h_abs_fitted_lr0.0001", "against": "baseline", "mlp": (1, 16, 1),
      "extra": " + length()", "decision": "rejected (decision log 2026-11-04)"},
+    {"label": "Field-aligned offsets: 4 taps, softmax(MLP(uv))", "study": "field_aligned_offsets",
+     "tag": "_offsets_abs_fitted_lr0.0001", "against": "baseline", "mlp": (2, 16, 4),
+     "extra": " + 2 bilinear taps, softmax, length()",
+     "decision": "kept, current best (decision log 2026-11-04)"},
 ]
 
 

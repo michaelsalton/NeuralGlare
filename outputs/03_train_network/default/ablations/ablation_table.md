@@ -4,8 +4,9 @@ Noise floor δ = 0.000148: the range of validation FLIP over `baseline` seeds 0,
 
 | Change | Study | Val FLIP | Δ vs compared | Test FLIP c / m / e | edge/centre | Edge gap closed | Params | MACs / texel / level | Criterion | Decision |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Step 1 baseline: MLP(uv) | `baseline` | 0.08181 | - | 0.0789 / 0.0806 / 0.1100 | 1.39x | +0% | 390 | 48 | - | current best (decision log 2026-11-03) |
+| Step 1 baseline: MLP(uv) | `baseline` | 0.08181 | - | 0.0789 / 0.0806 / 0.1100 | 1.39x | +0% | 390 | 48 | - | current best 2026-11-03, superseded 2026-11-04 |
 | Radial input: MLP(H) | `radial_input` | 0.08226 | +0.00045 (+3.1δ) | 0.0801 / 0.0806 / 0.1109 | 1.38x | -2% | 294 | 32 + length() | rejected | rejected (decision log 2026-11-04) |
+| Field-aligned offsets: 4 taps, softmax(MLP(uv)) | `field_aligned_offsets` | 0.08110 | -0.00071 (-4.8δ) | 0.0783 / 0.0797 / 0.1096 | 1.40x | +1% | 696 | 96 + 2 bilinear taps, softmax, length() | kept | kept, current best (decision log 2026-11-04) |
 
 Ceiling analysis (`ceiling`, ceiling.py): the exact reference with one feature removed, scored like the models. The ring-median oracles are the best round kernels in the absolute log loss; the ring-mean ones aren't ceilings.
 

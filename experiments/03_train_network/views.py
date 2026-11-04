@@ -49,6 +49,10 @@ STUDY_RUNS = {
         ("baseline", "_lerp_abs_fitted_lr0.0001", "Step 1 baseline: MLP(uv)"),
         ("radial_input", "_lerp_h_abs_fitted_lr0.0001", "Radial input: MLP(H)"),
     ],
+    "field_aligned_offsets": [
+        ("baseline", "_lerp_abs_fitted_lr0.0001", "Step 1 baseline: MLP(uv)"),
+        ("field_aligned_offsets", "_offsets_abs_fitted_lr0.0001", "Field-aligned offsets"),
+    ],
 }
 BASELINES = {"fft_centre": "Phase 0: FFT, centre PSF", "pyramid": "Phase 0: pyramid (fitted)"}
 EXPOSURE = 0.05                     # 1_look: Reinhard exposure, as the Step 1 views

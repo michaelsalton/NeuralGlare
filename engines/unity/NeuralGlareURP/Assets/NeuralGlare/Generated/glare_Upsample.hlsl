@@ -60,33 +60,40 @@ void dense_0(StructuredBuffer<float > params_buf_0, int offset_0, float  x_0[int
     return;
 }
 
-void dense_1(StructuredBuffer<float > params_buf_1, int offset_1, float  x_1[int(16)], out float  _S18[int(1)])
+void dense_1(StructuredBuffer<float > params_buf_1, int offset_1, float  x_1[int(16)], out float  _S18[int(4)])
 {
-    float  y_1[int(1)];
-    y_1[int(0)] = BufferParams_get_0(params_buf_1, offset_1 + int(16)) + BufferParams_get_0(params_buf_1, offset_1) * x_1[int(0)] + BufferParams_get_0(params_buf_1, offset_1 + int(1)) * x_1[int(1)] + BufferParams_get_0(params_buf_1, offset_1 + int(2)) * x_1[int(2)] + BufferParams_get_0(params_buf_1, offset_1 + int(3)) * x_1[int(3)] + BufferParams_get_0(params_buf_1, offset_1 + int(4)) * x_1[int(4)] + BufferParams_get_0(params_buf_1, offset_1 + int(5)) * x_1[int(5)] + BufferParams_get_0(params_buf_1, offset_1 + int(6)) * x_1[int(6)] + BufferParams_get_0(params_buf_1, offset_1 + int(7)) * x_1[int(7)] + BufferParams_get_0(params_buf_1, offset_1 + int(8)) * x_1[int(8)] + BufferParams_get_0(params_buf_1, offset_1 + int(9)) * x_1[int(9)] + BufferParams_get_0(params_buf_1, offset_1 + int(10)) * x_1[int(10)] + BufferParams_get_0(params_buf_1, offset_1 + int(11)) * x_1[int(11)] + BufferParams_get_0(params_buf_1, offset_1 + int(12)) * x_1[int(12)] + BufferParams_get_0(params_buf_1, offset_1 + int(13)) * x_1[int(13)] + BufferParams_get_0(params_buf_1, offset_1 + int(14)) * x_1[int(14)] + BufferParams_get_0(params_buf_1, offset_1 + int(15)) * x_1[int(15)];
+    int _S19 = offset_1 + int(64);
+    float  y_1[int(4)];
+    y_1[int(0)] = BufferParams_get_0(params_buf_1, _S19) + BufferParams_get_0(params_buf_1, offset_1) * x_1[int(0)] + BufferParams_get_0(params_buf_1, offset_1 + int(1)) * x_1[int(1)] + BufferParams_get_0(params_buf_1, offset_1 + int(2)) * x_1[int(2)] + BufferParams_get_0(params_buf_1, offset_1 + int(3)) * x_1[int(3)] + BufferParams_get_0(params_buf_1, offset_1 + int(4)) * x_1[int(4)] + BufferParams_get_0(params_buf_1, offset_1 + int(5)) * x_1[int(5)] + BufferParams_get_0(params_buf_1, offset_1 + int(6)) * x_1[int(6)] + BufferParams_get_0(params_buf_1, offset_1 + int(7)) * x_1[int(7)] + BufferParams_get_0(params_buf_1, offset_1 + int(8)) * x_1[int(8)] + BufferParams_get_0(params_buf_1, offset_1 + int(9)) * x_1[int(9)] + BufferParams_get_0(params_buf_1, offset_1 + int(10)) * x_1[int(10)] + BufferParams_get_0(params_buf_1, offset_1 + int(11)) * x_1[int(11)] + BufferParams_get_0(params_buf_1, offset_1 + int(12)) * x_1[int(12)] + BufferParams_get_0(params_buf_1, offset_1 + int(13)) * x_1[int(13)] + BufferParams_get_0(params_buf_1, offset_1 + int(14)) * x_1[int(14)] + BufferParams_get_0(params_buf_1, offset_1 + int(15)) * x_1[int(15)];
+    int _S20 = offset_1 + int(16);
+    y_1[int(1)] = BufferParams_get_0(params_buf_1, _S19 + int(1)) + BufferParams_get_0(params_buf_1, _S20) * x_1[int(0)] + BufferParams_get_0(params_buf_1, _S20 + int(1)) * x_1[int(1)] + BufferParams_get_0(params_buf_1, _S20 + int(2)) * x_1[int(2)] + BufferParams_get_0(params_buf_1, _S20 + int(3)) * x_1[int(3)] + BufferParams_get_0(params_buf_1, _S20 + int(4)) * x_1[int(4)] + BufferParams_get_0(params_buf_1, _S20 + int(5)) * x_1[int(5)] + BufferParams_get_0(params_buf_1, _S20 + int(6)) * x_1[int(6)] + BufferParams_get_0(params_buf_1, _S20 + int(7)) * x_1[int(7)] + BufferParams_get_0(params_buf_1, _S20 + int(8)) * x_1[int(8)] + BufferParams_get_0(params_buf_1, _S20 + int(9)) * x_1[int(9)] + BufferParams_get_0(params_buf_1, _S20 + int(10)) * x_1[int(10)] + BufferParams_get_0(params_buf_1, _S20 + int(11)) * x_1[int(11)] + BufferParams_get_0(params_buf_1, _S20 + int(12)) * x_1[int(12)] + BufferParams_get_0(params_buf_1, _S20 + int(13)) * x_1[int(13)] + BufferParams_get_0(params_buf_1, _S20 + int(14)) * x_1[int(14)] + BufferParams_get_0(params_buf_1, _S20 + int(15)) * x_1[int(15)];
+    int _S21 = offset_1 + int(32);
+    y_1[int(2)] = BufferParams_get_0(params_buf_1, _S19 + int(2)) + BufferParams_get_0(params_buf_1, _S21) * x_1[int(0)] + BufferParams_get_0(params_buf_1, _S21 + int(1)) * x_1[int(1)] + BufferParams_get_0(params_buf_1, _S21 + int(2)) * x_1[int(2)] + BufferParams_get_0(params_buf_1, _S21 + int(3)) * x_1[int(3)] + BufferParams_get_0(params_buf_1, _S21 + int(4)) * x_1[int(4)] + BufferParams_get_0(params_buf_1, _S21 + int(5)) * x_1[int(5)] + BufferParams_get_0(params_buf_1, _S21 + int(6)) * x_1[int(6)] + BufferParams_get_0(params_buf_1, _S21 + int(7)) * x_1[int(7)] + BufferParams_get_0(params_buf_1, _S21 + int(8)) * x_1[int(8)] + BufferParams_get_0(params_buf_1, _S21 + int(9)) * x_1[int(9)] + BufferParams_get_0(params_buf_1, _S21 + int(10)) * x_1[int(10)] + BufferParams_get_0(params_buf_1, _S21 + int(11)) * x_1[int(11)] + BufferParams_get_0(params_buf_1, _S21 + int(12)) * x_1[int(12)] + BufferParams_get_0(params_buf_1, _S21 + int(13)) * x_1[int(13)] + BufferParams_get_0(params_buf_1, _S21 + int(14)) * x_1[int(14)] + BufferParams_get_0(params_buf_1, _S21 + int(15)) * x_1[int(15)];
+    int _S22 = offset_1 + int(48);
+    y_1[int(3)] = BufferParams_get_0(params_buf_1, _S19 + int(3)) + BufferParams_get_0(params_buf_1, _S22) * x_1[int(0)] + BufferParams_get_0(params_buf_1, _S22 + int(1)) * x_1[int(1)] + BufferParams_get_0(params_buf_1, _S22 + int(2)) * x_1[int(2)] + BufferParams_get_0(params_buf_1, _S22 + int(3)) * x_1[int(3)] + BufferParams_get_0(params_buf_1, _S22 + int(4)) * x_1[int(4)] + BufferParams_get_0(params_buf_1, _S22 + int(5)) * x_1[int(5)] + BufferParams_get_0(params_buf_1, _S22 + int(6)) * x_1[int(6)] + BufferParams_get_0(params_buf_1, _S22 + int(7)) * x_1[int(7)] + BufferParams_get_0(params_buf_1, _S22 + int(8)) * x_1[int(8)] + BufferParams_get_0(params_buf_1, _S22 + int(9)) * x_1[int(9)] + BufferParams_get_0(params_buf_1, _S22 + int(10)) * x_1[int(10)] + BufferParams_get_0(params_buf_1, _S22 + int(11)) * x_1[int(11)] + BufferParams_get_0(params_buf_1, _S22 + int(12)) * x_1[int(12)] + BufferParams_get_0(params_buf_1, _S22 + int(13)) * x_1[int(13)] + BufferParams_get_0(params_buf_1, _S22 + int(14)) * x_1[int(14)] + BufferParams_get_0(params_buf_1, _S22 + int(15)) * x_1[int(15)];
     _S18 = y_1;
     return;
 }
 
 float leaky_relu_0(float x_2)
 {
-    float _S19;
+    float _S23;
     if(x_2 > 0.0f)
     {
-        _S19 = x_2;
+        _S23 = x_2;
     }
     else
     {
-        _S19 = 0.00999999977648258f * x_2;
+        _S23 = 0.00999999977648258f * x_2;
     }
-    return _S19;
+    return _S23;
 }
 
-void MLP_eval_0(StructuredBuffer<float > params_buf_2, int offset_2, float  x_3[int(2)], out float  _S20[int(1)])
+void MLP_eval_0(StructuredBuffer<float > params_buf_2, int offset_2, float  x_3[int(2)], out float  _S24[int(4)])
 {
-    float  _S21[int(16)];
-    dense_0(params_buf_2, offset_2, x_3, _S21);
-    float  h_0[int(16)] = _S21;
+    float  _S25[int(16)];
+    dense_0(params_buf_2, offset_2, x_3, _S25);
+    float  h_0[int(16)] = _S25;
     h_0[int(0)] = leaky_relu_0(h_0[int(0)]);
     h_0[int(1)] = leaky_relu_0(h_0[int(1)]);
     h_0[int(2)] = leaky_relu_0(h_0[int(2)]);
@@ -103,31 +110,38 @@ void MLP_eval_0(StructuredBuffer<float > params_buf_2, int offset_2, float  x_3[
     h_0[int(13)] = leaky_relu_0(h_0[int(13)]);
     h_0[int(14)] = leaky_relu_0(h_0[int(14)]);
     h_0[int(15)] = leaky_relu_0(h_0[int(15)]);
-    float  _S22[int(1)];
-    dense_1(params_buf_2, offset_2 + int(32) + int(16), h_0, _S22);
-    _S20 = _S22;
+    float  _S26[int(4)];
+    dense_1(params_buf_2, offset_2 + int(32) + int(16), h_0, _S26);
+    _S24 = _S26;
     return;
 }
 
-float sigmoid_0(float x_4)
+void weights_0(float2 uv_0, StructuredBuffer<float > params_buf_3, int offset_3, out float  _S27[int(4)])
 {
-    return 1.0f / (1.0f + exp(- x_4));
-}
-
-float blend_0(float2 uv_0, int2 size_0, StructuredBuffer<float > params_buf_3, int offset_3)
-{
-    float  x_5[int(2)] = { uv_0.x, uv_0.y };
-    float  _S23[int(1)];
-    MLP_eval_0(params_buf_3, offset_3, x_5, _S23);
-    return sigmoid_0(_S23[int(0)]);
+    float  x_4[int(2)] = { uv_0.x, uv_0.y };
+    float  _S28[int(4)];
+    MLP_eval_0(params_buf_3, offset_3, x_4, _S28);
+    float _S29 = max(max(_S28[int(0)], _S28[int(1)]), max(_S28[int(2)], _S28[int(3)]));
+    float  w_0[int(4)];
+    float _S30 = exp(_S28[int(0)] - _S29);
+    float _S31 = exp(_S28[int(1)] - _S29);
+    float _S32 = exp(_S28[int(2)] - _S29);
+    float _S33 = exp(_S28[int(3)] - _S29);
+    float sum_0 = _S30 + _S31 + _S32 + _S33;
+    w_0[int(0)] = _S30 / sum_0;
+    w_0[int(1)] = _S31 / sum_0;
+    w_0[int(2)] = _S32 / sum_0;
+    w_0[int(3)] = _S33 / sum_0;
+    _S27 = w_0;
+    return;
 }
 
 int2 TextureImage_size_0(Texture2D<float4 > this_tex_0)
 {
-    uint w_0;
+    uint w_1;
     uint h_1;
-    this_tex_0.GetDimensions(w_0, h_1);
-    return int2(int(w_0), int(h_1));
+    this_tex_0.GetDimensions(w_1, h_1);
+    return int2(int(w_1), int(h_1));
 }
 
 float3 TextureImage_load_0(Texture2D<float4 > this_tex_1, int2 texel_0)
@@ -137,55 +151,63 @@ float3 TextureImage_load_0(Texture2D<float4 > this_tex_1, int2 texel_0)
 
 float3 sample_bilinear_0(Texture2D<float4 > img_tex_0, float2 uv_1)
 {
-    int2 _S24 = TextureImage_size_0(img_tex_0);
-    float2 p_0 = uv_1 * float2(_S24) - 0.5f;
+    int2 _S34 = TextureImage_size_0(img_tex_0);
+    float2 p_0 = uv_1 * float2(_S34) - 0.5f;
     float2 p0_0 = floor(p_0);
     float2 f_0 = p_0 - p0_0;
-    int2 _S25 = int2(p0_0);
-    int2 _S26 = (int2)int(0);
-    int2 _S27 = _S24 - int(1);
-    int2 i0_0 = clamp(_S25, _S26, _S27);
-    int2 i1_0 = clamp(_S25 + int(1), _S26, _S27);
-    int _S28 = i0_0.x;
-    int _S29 = i0_0.y;
-    int _S30 = i1_0.x;
-    float3 _S31 = (float3)f_0.x;
-    int _S32 = i1_0.y;
-    return lerp(lerp(TextureImage_load_0(img_tex_0, int2(_S28, _S29)), TextureImage_load_0(img_tex_0, int2(_S30, _S29)), _S31), lerp(TextureImage_load_0(img_tex_0, int2(_S28, _S32)), TextureImage_load_0(img_tex_0, int2(_S30, _S32)), _S31), (float3)f_0.y);
+    int2 _S35 = int2(p0_0);
+    int2 _S36 = (int2)int(0);
+    int2 _S37 = _S34 - int(1);
+    int2 i0_0 = clamp(_S35, _S36, _S37);
+    int2 i1_0 = clamp(_S35 + int(1), _S36, _S37);
+    int _S38 = i0_0.x;
+    int _S39 = i0_0.y;
+    int _S40 = i1_0.x;
+    float3 _S41 = (float3)f_0.x;
+    int _S42 = i1_0.y;
+    return lerp(lerp(TextureImage_load_0(img_tex_0, int2(_S38, _S39)), TextureImage_load_0(img_tex_0, int2(_S40, _S39)), _S41), lerp(TextureImage_load_0(img_tex_0, int2(_S38, _S42)), TextureImage_load_0(img_tex_0, int2(_S40, _S42)), _S41), (float3)f_0.y);
 }
 
-float2 texel_uv_0(int2 texel_1, int2 size_1)
+float2 texel_uv_0(int2 texel_1, int2 size_0)
 {
-    return (float2(texel_1) + 0.5f) / float2(size_1);
+    return (float2(texel_1) + 0.5f) / float2(size_0);
+}
+
+float2 field_offset_0(float2 uv_2, int2 size_1)
+{
+    float2 _S43 = float2(size_1);
+    return (uv_2 - 0.5f) * _S43 / length(0.5f * _S43);
 }
 
 float3 upsample_0(int2 texel_2, int2 out_size_0, Texture2D<float4 > mip_tex_0, Texture2D<float4 > low_tex_0, StructuredBuffer<float > params_buf_4, int offset_4)
 {
-    float2 uv_2 = texel_uv_0(texel_2, out_size_0);
-    float _S33 = blend_0(uv_2, out_size_0, params_buf_4, offset_4);
-    return (1.0f - _S33) * TextureImage_load_0(mip_tex_0, texel_2) + _S33 * sample_bilinear_0(low_tex_0, uv_2);
+    float2 uv_3 = texel_uv_0(texel_2, out_size_0);
+    float  _S44[int(4)];
+    weights_0(uv_3, params_buf_4, offset_4, _S44);
+    float2 o_0 = field_offset_0(uv_3, out_size_0) / float2(out_size_0);
+    return _S44[int(0)] * TextureImage_load_0(mip_tex_0, texel_2) + _S44[int(1)] * sample_bilinear_0(mip_tex_0, uv_3 + o_0) + _S44[int(2)] * sample_bilinear_0(mip_tex_0, uv_3 - o_0) + _S44[int(3)] * sample_bilinear_0(low_tex_0, uv_3);
 }
 
 int2 target_size_0()
 {
-    uint w_1;
+    uint w_2;
     uint h_2;
-    _Target.GetDimensions(w_1, h_2);
-    return int2(int(w_1), int(h_2));
+    _Target.GetDimensions(w_2, h_2);
+    return int2(int(w_2), int(h_2));
 }
 
 [numthreads(8, 8, 1)]
 void Upsample(uint3 id_0 : SV_DispatchThreadID)
 {
     int2 size_2 = target_size_0();
-    int2 _S34 = int2(id_0.xy);
-    if(any(_S34 >= size_2))
+    int2 _S45 = int2(id_0.xy);
+    if(any(_S45 >= size_2))
     {
         return;
     }
-    uint2 _S35 = uint2(_S34);
-    int _S36 = ((_ParamOffset));
-    _Target[_S35] = float4(upsample_0(_S34, size_2, _Source, _SourceLow, _GlareParams, _S36), 1.0f);
+    uint2 _S46 = uint2(_S45);
+    int _S47 = ((_ParamOffset));
+    _Target[_S46] = float4(upsample_0(_S45, size_2, _Source, _SourceLow, _GlareParams, _S47), 1.0f);
     return;
 }
 

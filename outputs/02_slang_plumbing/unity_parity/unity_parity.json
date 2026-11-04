@@ -14,7 +14,7 @@
     "graphicsDeviceName": "NVIDIA GeForce RTX 2070",
     "graphicsDeviceVersion": "Direct3D 11.0 [level 11.1]"
   },
-  "weights": "outputs/03_train_network/default/baseline/export/glare_params_lerp_abs_fitted_lr0.0001.bytes",
+  "weights": "outputs/03_train_network/default/field_aligned_offsets/export/glare_params_offsets_abs_fitted_lr0.0001.bytes",
   "criteria": {
     "rtol": 0.0001,
     "atol_rel": 1e-07
@@ -80,7 +80,7 @@
           ]
         },
         "up0": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 1.469120161345927e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -89,7 +89,7 @@
           ]
         },
         "up1": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 2.162406781280879e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -98,7 +98,7 @@
           ]
         },
         "up2": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 7.559680670965463e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -107,7 +107,7 @@
           ]
         },
         "up3": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 0.0001372792321490124,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -125,7 +125,7 @@
           ]
         },
         "full": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 1.856425114965532e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -194,8 +194,8 @@
           ]
         },
         "up0": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.0005017526564188302,
+          "max_rel_error_bright": 7.194855555781032e-08,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -203,7 +203,7 @@
           ]
         },
         "up1": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 1.8533370166551322e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -212,7 +212,7 @@
           ]
         },
         "up2": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 0.00012334933853708208,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -221,7 +221,7 @@
           ]
         },
         "up3": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 6.104377098381519e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -239,7 +239,7 @@
           ]
         },
         "full": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 0.00022718041145708412,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -308,7 +308,7 @@
           ]
         },
         "up0": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 0.00020570401102304459,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -317,7 +317,7 @@
           ]
         },
         "up1": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 0.00015538650040980428,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -326,8 +326,8 @@
           ]
         },
         "up2": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.0012854281812906265,
+          "max_rel_error_bright": 1.2878882671429892e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -335,7 +335,7 @@
           ]
         },
         "up3": {
-          "max_bound_ratio": 0.0,
+          "max_bound_ratio": 3.738715895451605e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -353,8 +353,8 @@
           ]
         },
         "full": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.0016866736114025116,
+          "max_rel_error_bright": 2.1621880819111539e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,

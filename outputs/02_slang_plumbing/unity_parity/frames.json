@@ -16,5 +16,5 @@
       "height": 1080
     }
   ],
-  "weights": "outputs/03_train_network/default/baseline/export/glare_params_lerp_abs_fitted_lr0.0001.bytes"
+  "weights": "outputs/03_train_network/default/field_aligned_offsets/export/glare_params_offsets_abs_fitted_lr0.0001.bytes"
 }

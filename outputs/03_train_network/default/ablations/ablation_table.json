@@ -26,7 +26,7 @@
       "params": 390,
       "macs_per_texel_level": 48,
       "extra_cost": "",
-      "decision": "current best (decision log 2026-11-03)"
+      "decision": "current best 2026-11-03, superseded 2026-11-04"
     },
     {
       "label": "Radial input: MLP(H)",
@@ -48,6 +48,27 @@
       "val_diff": 0.00045228948195776,
       "val_diff_delta": 3.059854362896675,
       "criterion": "rejected"
+    },
+    {
+      "label": "Field-aligned offsets: 4 taps, softmax(MLP(uv))",
+      "study": "field_aligned_offsets",
+      "tag": "_offsets_abs_fitted_lr0.0001",
+      "against": "baseline",
+      "val_flip": 0.08110443900028864,
+      "test_flip": {
+        "centre": 0.07825761288404465,
+        "mid": 0.07973276078701019,
+        "edge": 0.10955237597227097
+      },
+      "edge_over_centre": 1.3998941692049334,
+      "gap_closed": 0.010671600835051883,
+      "params": 696,
+      "macs_per_texel_level": 96,
+      "extra_cost": " + 2 bilinear taps, softmax, length()",
+      "decision": "kept, current best (decision log 2026-11-04)",
+      "val_diff": -0.0007071723540623964,
+      "val_diff_delta": -4.784202373071812,
+      "criterion": "kept"
     }
   ],
   "ceiling": {

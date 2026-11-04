@@ -73,10 +73,13 @@ def urp_up0(mips, scatter):
 
 def exact_params(n_levels, scatter, count):
     """Every weight and hidden bias 0, so the hidden layer outputs leaky_relu(0) = 0 and each
-    MLP outputs its output bias: logit(s), so t = sigmoid(logit(s)) = s, URP's answer."""
+    MLP outputs its output biases: softmax(0, -30, -30, logit(s)) = (1 - s, ~0, ~0, s), URP's
+    answer with the offset taps off."""
     params = torch.zeros(n_levels * count)
     for k in range(n_levels):
-        params[(k + 1) * count - 1] = float(np.log(scatter / (1 - scatter)))
+        end = (k + 1) * count                       # output biases: mip, mip(+o), mip(-o), low
+        params[end - 3] = params[end - 2] = -30.0   # offset taps off: weight e^-30
+        params[end - 1] = float(np.log(scatter / (1 - scatter)))
     return params
 
 

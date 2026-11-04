@@ -40,8 +40,9 @@ from neuralglare.baselines.pyramid_bloom import URPBloomParams
 from neuralglare.io import read_hdr
 
 PARITY_DIR = OUT_DIR / "unity_parity"
-WEIGHTS = (ROOT / "outputs" / "03_train_network" / "default" / "baseline" / "export" /
-           "glare_params_lerp_abs_fitted_lr0.0001.bytes")   # selected step 1 model (2026-11-03)
+WEIGHTS = (ROOT / "outputs" / "03_train_network" / "default" / "field_aligned_offsets" / "export" /
+           "glare_params_offsets_abs_fitted_lr0.0001.bytes")  # current best (2026-11-04); the
+                                                              # 2-tap baseline no longer runs on glare.slang
 UNITY_WEIGHTS = (ROOT / "engines" / "unity" / "NeuralGlareURP" / "Assets" / "NeuralGlare" /
                  "Data" / "glare_params.bytes")              # ParityHarness.WeightsPath
 UNITY_LAYOUT = UNITY_WEIGHTS.with_suffix(".json")             # ParityHarness.LayoutPath
