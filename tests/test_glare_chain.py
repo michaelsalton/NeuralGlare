@@ -27,8 +27,6 @@ from neuralglare.baselines.pyramid_bloom import (
 )
 
 SLANG_DIR = Path(__file__).parents[1] / "slang"
-IN, HIDDEN, OUT = 2, 16, 1                       # LevelMLP in glare.slang
-PARAM_COUNT = (IN * HIDDEN + HIDDEN) + (HIDDEN * OUT + OUT)
 
 needs_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA torch")
 
@@ -51,6 +49,20 @@ def pyramid():
     return downsample_chain(img, p), scatter
 
 
+def param_count(module):
+    """LevelMLP.PARAM_COUNT, from glare.slang itself (not restated here)."""
+    return int(module.level_mlp_sizes().w)
+
+
+@needs_cuda
+def test_level_mlp_sizes_match_mlp_layout(module):
+    """PARAM_COUNT is mlp.slang's layout for the sizes it reports: W1, b1, W2, b2. Python sizes
+    and offsets the shared parameter buffer with these numbers (train_levels.level_mlp)."""
+    v = module.level_mlp_sizes()
+    i, h, o, n = int(v.x), int(v.y), int(v.z), int(v.w)
+    assert n == (i * h + h) + (h * o + o)
+
+
 def urp_up0(mips, scatter):
     up = mips[-1]
     for mip in reversed(mips[:-1]):
@@ -59,12 +71,12 @@ def urp_up0(mips, scatter):
     return up
 
 
-def exact_params(n_levels, scatter):
+def exact_params(n_levels, scatter, count):
     """Every weight and hidden bias 0, so the hidden layer outputs leaky_relu(0) = 0 and each
     MLP outputs its output bias: logit(s), so t = sigmoid(logit(s)) = s, URP's answer."""
-    params = torch.zeros(n_levels * PARAM_COUNT)
+    params = torch.zeros(n_levels * count)
     for k in range(n_levels):
-        params[(k + 1) * PARAM_COUNT - 1] = float(np.log(scatter / (1 - scatter)))
+        params[(k + 1) * count - 1] = float(np.log(scatter / (1 - scatter)))
     return params
 
 
@@ -74,7 +86,7 @@ def chain(module, mips, params):
         h, w = mips[k].shape[:2]
         out = module.upsample_chain_pass(texel=spy.grid((h, w)), out_size=spy.int2(w, h),
                                          mip=mips[k], low=out, params=params,
-                                         offset=k * PARAM_COUNT)
+                                         offset=k * param_count(module))
         if torch.is_grad_enabled() and params.requires_grad:
             assert out.grad_fn is not None, "slangpy dropped autograd (see module docstring)"
     return out
@@ -84,7 +96,7 @@ def chain(module, mips, params):
 def test_exact_weights_reproduce_urp(module, pyramid):
     mips, scatter = pyramid
     gpu = [torch.from_numpy(m).cuda() for m in mips]
-    params = exact_params(len(mips) - 1, scatter).cuda().requires_grad_(True)
+    params = exact_params(len(mips) - 1, scatter, param_count(module)).cuda().requires_grad_(True)
     out = chain(module, gpu, params)
     np.testing.assert_allclose(out.detach().cpu().numpy(), urp_up0(mips, scatter), rtol=1e-4)
 
@@ -93,9 +105,9 @@ def test_exact_weights_reproduce_urp(module, pyramid):
 def test_gradient_reaches_every_level(module, pyramid):
     mips, scatter = pyramid
     gpu = [torch.from_numpy(m).cuda() for m in mips]
-    params = exact_params(len(mips) - 1, scatter).cuda().requires_grad_(True)
+    params = exact_params(len(mips) - 1, scatter, param_count(module)).cuda().requires_grad_(True)
     chain(module, gpu, params).sum().backward()
-    grad = params.grad.reshape(len(mips) - 1, PARAM_COUNT)
+    grad = params.grad.reshape(len(mips) - 1, param_count(module))
     # d(sum of up0) / d(bias of level k's blend) is nonzero for every level
     assert torch.all(grad[:, -1].abs() > 0), grad[:, -1]
 
@@ -110,11 +122,11 @@ def test_gradient_matches_finite_difference(module, pyramid):
     mips, scatter = pyramid
     gpu = [torch.from_numpy(m).cuda() for m in mips]
     n_levels = len(mips) - 1
-    params = exact_params(n_levels, scatter).cuda().requires_grad_(True)
+    params = exact_params(n_levels, scatter, param_count(module)).cuda().requires_grad_(True)
     chain(module, gpu, params).sum().backward()
     h = 3e-2
     for k in range(n_levels):
-        i = (k + 1) * PARAM_COUNT - 1                    # level k's output bias (the blend)
+        i = (k + 1) * param_count(module) - 1            # level k's output bias (the blend)
         plus, minus = params.detach().clone(), params.detach().clone()
         plus[i] += h
         minus[i] -= h

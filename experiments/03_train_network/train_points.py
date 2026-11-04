@@ -38,11 +38,16 @@ training runs before any evaluation (see train_pyramid.py).
 --init fitted (default) starts every level at Phase 0's fitted pyramid bloom as a constant
 blend, energy-normalised (see fitted_pyramid_init), so the "Init" row is close to Phase 0's
 fitted-pyramid numbers but not identical. --init neutral starts every level at t = 0.5.
-Outputs are named train_points_<ARCH>_<loss>_<init>_lr<lr>. Older runs kept their names: before
+Outputs are named train_points_<ARCH>_<loss>_<init>_lr<lr>, plus _seed<n> for --seed other than 0
+(seed spread, decision log 2026-11-03). Older runs kept their names: before
 the lerp (2-weight networks), and before the validation frame (squared loss on all 9 frames,
 train_points_<ARCH>_<init>_lr<lr>).
 
-    uv run python experiments/03_train_network/train_points.py --run default
+    uv run python experiments/03_train_network/train_points.py --run default --study baseline
+
+--study names the folder the run's files go to, outputs/03_train_network/<run>/<study>/<stage>/
+(STUDIES; decision log 2026-11-03): one folder per Step 2 ablation, so a study's reports, raw
+records, weights and figures stay together.
 """
 
 import argparse
@@ -66,11 +71,14 @@ sys.path.insert(0, str(ROOT / "experiments" / "01_gap_study"))
 sys.path.insert(0, str(ROOT / "experiments" / "02_slang_plumbing"))
 from evaluate_gap import BINS, field_height
 from exact_pointgrid import splat
-from train_levels import HIDDEN, IN, OUT, environment, init_params
-from train_pyramid import PARAM_COUNT, slang_mips
+from train_levels import environment, init_params, level_mlp
+from train_pyramid import level_params, slang_mips
 
 EXPERIMENT = "03_train_network"
+STUDIES = ("setup", "baseline", "radial_input")   # add one per ablation
 ARCH = "lerp"                       # glare.slang's level form; part of every output name
+                                    # (lerp: MLP(uv), Step 1, current best; lerp_h: MLP(H),
+                                    # radial_input, rejected, decision log 2026-11-04)
 T_PASS = 1e-4                       # default blend of a pass-through level (sigmoid never
                                     # reaches 0); its gradient carries t(1 - t), so a tiny t
                                     # nearly freezes the level (decision log 2026-11-02)
@@ -81,6 +89,9 @@ LOG_EVERY = 250
 COMPARE = {"fft_centre": "Phase 0: FFT, exact centre PSF",
            "pyramid": "Phase 0: pyramid bloom (fitted)"}
 EDGE_RATIO = 2.0                    # criterion (2), the Phase 0 proceed rule's ratio
+VIEW_H = (0.0, 0.5, 0.88)           # views.py: the test sources nearest these field heights
+VIEW_PX = 160                       # views.py: crop size around each view source
+BLEND_GRID = (27, 48)               # views.py: (rows, cols) of the screen grid for the blend maps
 
 
 def train_frames(bank, rows, cols):
@@ -100,7 +111,7 @@ def train_frames(bank, rows, cols):
     return frames
 
 
-def fitted_pyramid_init(gen, n_levels, fit, t_pass=T_PASS):
+def fitted_pyramid_init(gen, net, n_levels, fit, t_pass=T_PASS):
     """Phase 0's fitted pyramid bloom as a constant blend per level (output layer 0, bias
     logit(t)). URP with m mips: up[k] = lerp(mip_k, up(up[k+1]), s) for k < m-1,
     up[m-1] = mip_{m-1}: t = s, then t = t_pass. URP's last step out = input + I * up(up[0])
@@ -113,12 +124,13 @@ def fitted_pyramid_init(gen, n_levels, fit, t_pass=T_PASS):
     m = p.max_iterations
     blends = [s if k < m - 1 else t_pass for k in range(n_levels - 1)]
     blends.append(p.intensity / (1 + p.intensity))      # full-resolution level
+    hidden_end = net.inputs * net.hidden + net.hidden  # mlp.slang layout: W1, b1, W2, b2
     nets = []
     for t in blends:
-        net = init_params(gen)
-        net[IN * HIDDEN + HIDDEN:-OUT] = 0              # W2: output independent of uv
-        net[-OUT:] = float(np.log(t / (1 - t)))         # b2 = logit(t)
-        nets.append(net)
+        w = init_params(gen, net)
+        w[hidden_end:-net.outputs] = 0                  # W2: output independent of uv
+        w[-net.outputs:] = float(np.log(t / (1 - t)))   # b2 = logit(t)
+        nets.append(w)
     return torch.cat(nets)
 
 
@@ -138,7 +150,8 @@ def level(module, mip, low, params, k):
     """Upsample level k at mip's resolution: w0 * mip + w1 * bilinear(low), network k."""
     h, w = mip.shape[:2]
     return module.upsample_chain_pass(texel=spy.grid((h, w)), out_size=spy.int2(w, h), mip=mip,
-                                      low=low, params=params, offset=k * PARAM_COUNT)
+                                      low=low, params=params,
+                                      offset=k * level_mlp(module).param_count)
 
 
 def glare(module, mips, src, params):
@@ -169,14 +182,12 @@ def frames_loss(module, data, params, kind):
                               for mips, src, ref in data]))
 
 
-def evaluate(module, params, img, ref, positions, size, ppd):
-    """Per test source, the gap study's window metrics. FLIP from one full-frame map."""
-    mips, src, _ = prepare(module, img)
-    with torch.no_grad():
-        out = glare(module, mips, src, params).cpu().numpy()
+def window_records(out, ref, positions, size, ppd):
+    """Per test source, the gap study's window metrics of an output frame. FLIP from one
+    full-frame map. Shared with ceiling.py, so models and oracles are measured alike."""
     fmap, _ = m.flip_map(out, ref, ppd, floor=m.flip_floor(EPS))   # exposure floor: decision log 2026-11-03
     pos_out = np.maximum(out, 0)
-    h, w = img.shape[:2]
+    h, w = ref.shape[:2]
     records = []
     for x, y in positions:
         w_out, w_ref = m.window(pos_out, x, y, size), m.window(ref, x, y, size)
@@ -184,7 +195,51 @@ def evaluate(module, params, img, ref, positions, size, ppd):
                         "flip": float(m.window(fmap, x, y, size).mean()),
                         "log_mse": m.log_loss(w_out, w_ref, EPS),
                         "energy": m.energy_error(m.window(out, x, y, size), w_ref)})
-    return records, float((out < 0).mean())
+    return records
+
+
+def evaluate(module, params, img, ref, positions, size, ppd):
+    """Per test source, the gap study's window metrics of the model's output."""
+    mips, src, _ = prepare(module, img)
+    with torch.no_grad():
+        out = glare(module, mips, src, params).cpu().numpy()
+    return window_records(out, ref, positions, size, ppd), float((out < 0).mean())
+
+
+def view_sources(positions, w, h):
+    """The test sources nearest VIEW_H, one per target: the rows of views.py's figures."""
+    hs = np.array([field_height(x, y, w, h) for x, y in positions])
+    return [positions[int(np.argmin(np.abs(hs - t)))] for t in VIEW_H]
+
+
+def view_crop(img, x, y):
+    """VIEW_PX crop centred on (x, y), zero outside the frame: the 6 % grid margin is 65 px, less
+    than half a crop, but the PSF (127 px) always lies inside the frame."""
+    r = VIEW_PX // 2
+    padded = np.pad(img, ((r, r), (r, r), (0, 0)))
+    return padded[int(y):int(y) + VIEW_PX, int(x):int(x) + VIEW_PX]
+
+
+def save_views(module, params, img, positions, path):
+    """What views.py draws, saved with every run so a figure never has to re-run an old
+    architecture: the output (float32, unclamped) in VIEW_PX crops around the view sources,
+    and each level's blend t over the screen, both from the Slang model."""
+    h, w = img.shape[:2]
+    mips, src, _ = prepare(module, img)
+    with torch.no_grad():
+        out = glare(module, mips, src, params).cpu().numpy()
+        gv, gu = np.meshgrid(np.linspace(0, 1, BLEND_GRID[0]), np.linspace(0, 1, BLEND_GRID[1]),
+                             indexing="ij")
+        uv = torch.tensor(np.stack([gu.ravel(), gv.ravel()], -1), dtype=torch.float32,
+                          device="cuda")
+        blend = np.stack([module.filter_weights(uv=uv, size=spy.int2(w, h),
+                                                params=level_params(module, params, k))
+                          [:, 1].cpu().numpy().reshape(BLEND_GRID)
+                          for k in range(params.numel() // level_mlp(module).param_count)])
+    pos = view_sources(positions, w, h)
+    crops = np.stack([view_crop(out, x, y) for x, y in pos])
+    np.savez_compressed(path, pos=np.array(pos), h=[field_height(x, y, w, h) for x, y in pos],
+                        out=crops.astype(np.float32), blend=blend.astype(np.float32))
 
 
 def summarize(records):
@@ -275,6 +330,8 @@ def train(module, data, val_data, init, args, rng):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", choices=RUNS, default="default")
+    ap.add_argument("--study", choices=STUDIES, required=True,
+                    help="output folder: Step 1 setup, the baseline, or one Step 2 ablation")
     ap.add_argument("--steps", type=int, default=2000)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--seed", type=int, default=0)
@@ -290,6 +347,8 @@ def main():
     tag = f"_{ARCH}_{args.loss}_{args.init}_lr{args.lr:g}"
     if args.init == "fitted" and args.t_pass != T_PASS:
         tag += f"_tpass{args.t_pass:g}"
+    if args.seed != 0:
+        tag += f"_seed{args.seed}"
 
     split = tomllib.loads((ROOT / "configs" / "split.toml").read_text())["phase2_points"]
     with np.load(ROOT / psf_bank_path(args.run)) as z:
@@ -317,15 +376,18 @@ def main():
     if args.init == "fitted":
         fit = json.loads((ROOT / "outputs" / "01_gap_study" / args.run / "fits" / "pyramid_fit.json")
                          .read_text())["best"]
-        init = fitted_pyramid_init(gen, n_levels, fit, args.t_pass)
+        init = fitted_pyramid_init(gen, level_mlp(module), n_levels, fit, args.t_pass)
     else:
-        init = torch.cat([init_params(gen) for _ in range(n_levels)])
+        init = torch.cat([init_params(gen, level_mlp(module)) for _ in range(n_levels)])
     print(f"{len(frames)} training frames ({min(map(len, frames))}-{max(map(len, frames))} "
           f"sources), 1 validation frame ({len(val_sel)} sources), {n_levels} levels, "
           f"{init.numel()} parameters")
 
-    fits = Path(run_dir(EXPERIMENT, args.run, "fits"))
-    eval_path = Path(run_dir(EXPERIMENT, args.run, "eval")) / f"train_points{tag}_eval.json"
+    def out(stage):
+        return Path(run_dir(EXPERIMENT, args.run, stage, args.study))
+
+    fits = out("fits")
+    eval_path = out("eval") / f"train_points{tag}_eval.json"
     if args.rescore:
         params = torch.from_numpy(np.load(fits / f"train_points{tag}_params.npy")).cuda()
         old = json.loads(eval_path.read_text())
@@ -352,13 +414,14 @@ def main():
     trained = results["trained"]["summary"]
     answers = verdict(trained, phase0)
 
-    export = Path(run_dir(EXPERIMENT, args.run, "export"))
+    export = out("export")
     np.save(fits / f"train_points{tag}_params.npy", params.cpu().numpy())
+    save_views(module, params, test_img, test_pos, out("eval") / f"train_points{tag}_views.npz")
     params.cpu().numpy().astype("<f4").tofile(export / f"glare_params{tag}.bytes")
     eval_path.write_text(json.dumps({
         "environment": environment(device), "args": vars(args), "eps": EPS, "flip_floor": m.flip_floor(EPS),
         "intensity": INTENSITY, "window_px": size, "flip_ppd": ppd, "levels": n_levels,
-        "param_count": PARAM_COUNT, "frames": frames, "val_frame": val_sel, "seconds": seconds,
+        "param_count": level_mlp(module).param_count, "frames": frames, "val_frame": val_sel, "seconds": seconds,
         "curve": curve,
         "phase0": phase0, "phase0_fit": phase0_fit, "answers": answers, "results": results},
         indent=2))
@@ -368,7 +431,7 @@ def main():
              "neutral": "t = 0.5"}[args.init]
     rows += [(f"Init ({start}, before training)", results["init"]["summary"]),
              ("**Trained (this run)**", trained)]
-    report = (f"# Phase 2 step 1: Phase 1 architecture on exact point-light PSFs ({args.run})\n\n"
+    report = (f"# Phase 2, {args.study}: `{ARCH}` on exact point-light PSFs ({args.run})\n\n"
               f"{table(rows)}\n\n"
               f"Medians over the 35 point-grid windows ({size} px). Bins: centre H < 1/3 "
               f"(n = {trained['centre']['n']}), mid (n = {trained['mid']['n']}), edge >= 2/3 "
@@ -389,7 +452,7 @@ def main():
               f"- expected: centre FLIP above the FFT centre kernel's "
               f"({phase0['fft_centre']['centre']['flip']:.3f}): "
               f"**{answers['centre_above_fft_centre_as_expected']}**\n")
-    (Path(run_dir(EXPERIMENT, args.run, "report")) / f"train_points{tag}.md").write_text(report)
+    (out("report") / f"train_points{tag}.md").write_text(report)
     print("\n" + report)
 
 

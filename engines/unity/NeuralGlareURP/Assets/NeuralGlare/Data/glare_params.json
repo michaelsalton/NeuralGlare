@@ -1,0 +1,8 @@
+{
+  "inputs": 2,
+  "hidden": 16,
+  "outputs": 1,
+  "paramCount": 65,
+  "levels": 6,
+  "source": "slang/glare.slang LevelMLP, via unity_parity.py export"
+}

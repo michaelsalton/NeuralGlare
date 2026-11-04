@@ -2,6 +2,8 @@
 // experiments/02_slang_plumbing/unity_parity.py and write every mip and upsample level back
 // as raw float32 RGBA (row 0 = texel y = 0, no header) for the Python comparison. Weights with
 // one level more than the pyramid (Phase 2) also run the full-resolution level (_unity_full).
+// The per-level parameter count comes from glare_params.json, which unity_parity.py export writes
+// from glare.slang's LevelMLP, so it can't drift from the network the HLSL was compiled from.
 using System;
 using System.IO;
 using Unity.Collections;
@@ -13,11 +15,12 @@ static class ParityHarness
 {
     const string ShaderDir = "Assets/NeuralGlare/Shaders/";
     const string WeightsPath = "Assets/NeuralGlare/Data/glare_params.bytes";
-    const int ParamCount = 65;      // LevelMLP.PARAM_COUNT = (2*16 + 16) + (16*1 + 1)
+    const string LayoutPath = "Assets/NeuralGlare/Data/glare_params.json";   // unity_parity.py UNITY_LAYOUT
     const int MaxIterations = 6;    // URPBloomParams.max_iterations in train_pyramid.py
 
     [Serializable] class Frame { public string name; public int width; public int height; }
     [Serializable] class Manifest { public Frame[] frames; }
+    [Serializable] class Layout { public int inputs, hidden, outputs, paramCount, levels; }
     [Serializable] class RunInfo
     {
         public string unityVersion, graphicsDeviceType, graphicsDeviceName, graphicsDeviceVersion;
@@ -37,13 +40,13 @@ static class ParityHarness
         ComputeShader blurV = LoadShader("GlareBlurV");
         ComputeShader upsample = LoadShader("GlareUpsample");
 
-        float[] weights = LoadWeights();
+        Layout layout = LoadLayout();
+        float[] weights = LoadWeights(layout);
         using var paramBuffer = new ComputeBuffer(weights.Length, sizeof(float));
         paramBuffer.SetData(weights);
-        int levels = weights.Length / ParamCount;
 
         foreach (Frame frame in manifest.frames)
-            RunFrame(frame, prefilter, blurH, blurV, upsample, paramBuffer, levels);
+            RunFrame(frame, prefilter, blurH, blurV, upsample, paramBuffer, layout);
 
         var info = new RunInfo
         {
@@ -58,8 +61,9 @@ static class ParityHarness
 
     static void RunFrame(Frame frame, ComputeShader prefilter, ComputeShader blurH,
                          ComputeShader blurV, ComputeShader upsample, ComputeBuffer paramBuffer,
-                         int levels)
+                         Layout layout)
     {
+        int levels = layout.levels;
         var input = new Texture2D(frame.width, frame.height, TextureFormat.RGBAFloat,
                                   mipChain: false, linear: true);
         input.SetPixelData(ReadFloats(Path.Combine(ParityDir, frame.name + "_input.f32"),
@@ -97,7 +101,7 @@ static class ParityHarness
             {
                 ups[k] = Target(sizes[k]);
                 upsample.SetTexture(0, "_SourceLow", k + 1 < n ? ups[k + 1] : mips[n]);
-                upsample.SetInt("_ParamOffset", k * ParamCount);
+                upsample.SetInt("_ParamOffset", k * layout.paramCount);
                 Dispatch(upsample, mips[k], ups[k]);
             }
 
@@ -106,7 +110,7 @@ static class ParityHarness
             {
                 full = Target(new Vector2Int(frame.width, frame.height));
                 upsample.SetTexture(0, "_SourceLow", ups[0]);
-                upsample.SetInt("_ParamOffset", n * ParamCount);
+                upsample.SetInt("_ParamOffset", n * layout.paramCount);
                 Dispatch(upsample, input, full);
             }
 
@@ -178,11 +182,22 @@ static class ParityHarness
         return shader != null ? shader : throw new FileNotFoundException(ShaderDir + name + ".compute");
     }
 
-    static float[] LoadWeights()
+    static Layout LoadLayout()
+    {
+        var asset = AssetDatabase.LoadAssetAtPath<TextAsset>(LayoutPath);
+        if (asset == null)
+            throw new FileNotFoundException($"{LayoutPath}: run unity_parity.py export");
+        var layout = JsonUtility.FromJson<Layout>(asset.text);
+        if (layout.paramCount <= 0 || layout.levels <= 0)
+            throw new InvalidDataException($"{LayoutPath}: paramCount {layout.paramCount}, levels {layout.levels}");
+        return layout;
+    }
+
+    static float[] LoadWeights(Layout layout)
     {
         byte[] bytes = AssetDatabase.LoadAssetAtPath<TextAsset>(WeightsPath).bytes;
-        if (bytes.Length == 0 || bytes.Length % (ParamCount * sizeof(float)) != 0)
-            throw new InvalidDataException($"{WeightsPath}: {bytes.Length} bytes is not a whole number of {ParamCount}-float levels");
+        if (bytes.Length != layout.levels * layout.paramCount * sizeof(float))
+            throw new InvalidDataException($"{WeightsPath}: {bytes.Length} bytes, {LayoutPath} says {layout.levels} levels of {layout.paramCount} floats");
         var weights = new float[bytes.Length / sizeof(float)];
         Buffer.BlockCopy(bytes, 0, weights, 0, bytes.Length);
         return weights;

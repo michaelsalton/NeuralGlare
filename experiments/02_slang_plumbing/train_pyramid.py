@@ -8,8 +8,8 @@ of that one loss reaches every level through the chain (tests/test_glare_chain.p
 answer is still w = (1 - s, s) at every level, so per-level weight errors show what end-to-end
 supervision pins down, compared with step 3's teacher forcing.
 
-All levels share one flat parameter buffer, level k at offset k * PARAM_COUNT: the weight file
-format the engines load.
+All levels share one flat parameter buffer, level k at offset k * LevelMLP.PARAM_COUNT (read from
+Slang by level_mlp): the weight file format the engines load.
 
 Pass criteria, fixed before the first run (2026-10-29): test loss on up[0] <= PASS_TEST_LOSS,
 and every level's max |w - (1 - s, s)| <= PASS_WEIGHT_ERROR.
@@ -36,14 +36,13 @@ import numpy as np
 import slangpy as spy
 import torch
 from train_levels import (
-    HIDDEN,
-    IN,
-    OUT,
+    FRAME_SIZE,
     OUT_DIR,
     ROOT,
     VIEWS,
     environment,
     init_params,
+    level_mlp,
     relative_loss,
     upsample_targets,
 )
@@ -51,7 +50,6 @@ from train_levels import (
 from neuralglare.baselines.pyramid_bloom import URPBloomParams, mip_sizes, shader_constants
 from neuralglare.io import read_hdr
 
-PARAM_COUNT = (IN * HIDDEN + HIDDEN) + (HIDDEN * OUT + OUT)     # LevelMLP.PARAM_COUNT
 PASS_TEST_LOSS = 1e-6           # step 3's per-level test losses: 4.5e-8 .. 6.1e-7
 PASS_WEIGHT_ERROR = 0.02        # step 3: 0.004 .. 0.009
 LOG_EVERY = 250
@@ -92,18 +90,24 @@ def chain(module, mips, params):
         h, w = mips[k].shape[:2]
         out = module.upsample_chain_pass(texel=spy.grid((h, w)), out_size=spy.int2(w, h),
                                          mip=mips[k], low=out, params=params,
-                                         offset=k * PARAM_COUNT)
+                                         offset=k * level_mlp(module).param_count)
         if torch.is_grad_enabled() and params.requires_grad:
             assert out.grad_fn is not None, "slangpy dropped autograd (see module docstring)"
     return out
 
 
+def level_params(module, params, k):
+    """Level k's network: its contiguous slice of the shared parameter buffer."""
+    n = level_mlp(module).param_count
+    return params[k * n:(k + 1) * n].contiguous()
+
+
 def weight_errors(module, params, n_levels, grid_uv, exact):
     """Per level, max |w(uv) - (1 - s, s)| over the screen grid."""
     with torch.no_grad():
-        return [(module.filter_weights(uv=grid_uv,
-                                       params=params[k * PARAM_COUNT:(k + 1) * PARAM_COUNT]
-                                       .contiguous()) - exact).abs().max().item()
+        return [(module.filter_weights(uv=grid_uv, size=spy.int2(*FRAME_SIZE),
+                                       params=level_params(module, params, k))
+                 - exact).abs().max().item()
                 for k in range(n_levels)]
 
 
@@ -112,9 +116,9 @@ def coefficient_errors(module, params, n_levels, grid_uv, scatter):
     product of weights along mip k's path to out_0. Weights vary slowly over the screen, so
     evaluating every level at the same uv is a close approximation of the chained bilinear path."""
     with torch.no_grad():
-        w = [module.filter_weights(uv=grid_uv,
-                                   params=params[k * PARAM_COUNT:(k + 1) * PARAM_COUNT]
-                                   .contiguous()) for k in range(n_levels)]
+        w = [module.filter_weights(uv=grid_uv, size=spy.int2(*FRAME_SIZE),
+                                   params=level_params(module, params, k))
+             for k in range(n_levels)]
         errors, low_path = [], torch.ones_like(w[0][:, 0])
         for k in range(n_levels + 1):
             c = low_path * w[k][:, 0] if k < n_levels else low_path
@@ -156,7 +160,8 @@ def main():
                            device="cuda")
     exact = torch.tensor([1 - scatter, scatter], device="cuda")
 
-    params = torch.cat([init_params(gen) for _ in range(n_levels)]).cuda().requires_grad_(True)
+    params = torch.cat([init_params(gen, level_mlp(module)) for _ in range(n_levels)])
+    params = params.cuda().requires_grad_(True)
     optimizer = torch.optim.Adam([params], lr=args.lr)
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.steps)
     curve = []
@@ -191,7 +196,7 @@ def main():
     # Engine weight file: raw little-endian float32 in the flat mlp.slang layout, no header
     params.detach().cpu().numpy().astype("<f4").tofile(OUT_DIR / "glare_params.bytes")
     (OUT_DIR / "train_pyramid.json").write_text(json.dumps({
-        "environment": environment(device), "scatter": scatter, "steps": args.steps, "lr": args.lr, "param_count": PARAM_COUNT,
+        "environment": environment(device), "scatter": scatter, "steps": args.steps, "lr": args.lr, "param_count": level_mlp(module).param_count,
         "pass_criteria": {"test_loss": PASS_TEST_LOSS, "max_weight_error": PASS_WEIGHT_ERROR},
         "train_loss": train_loss, "test_loss": test_loss, "pass": passed, "seconds": seconds,
         "levels": [{"level": k, "size": sizes[k], "max_weight_error": errors[k]}

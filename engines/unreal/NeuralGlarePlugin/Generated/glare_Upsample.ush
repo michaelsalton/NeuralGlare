@@ -109,6 +109,19 @@ void MLP_eval_0(StructuredBuffer<float > params_buf_2, int offset_2, float  x_3[
     return;
 }
 
+float sigmoid_0(float x_4)
+{
+    return 1.0f / (1.0f + exp(- x_4));
+}
+
+float blend_0(float2 uv_0, int2 size_0, StructuredBuffer<float > params_buf_3, int offset_3)
+{
+    float  x_5[int(2)] = { uv_0.x, uv_0.y };
+    float  _S23[int(1)];
+    MLP_eval_0(params_buf_3, offset_3, x_5, _S23);
+    return sigmoid_0(_S23[int(0)]);
+}
+
 int2 TextureImage_size_0(Texture2D<float4 > this_tex_0)
 {
     uint w_0;
@@ -122,43 +135,35 @@ float3 TextureImage_load_0(Texture2D<float4 > this_tex_1, int2 texel_0)
     return this_tex_1.Load(int3(texel_0, int(0))).xyz;
 }
 
-float3 sample_bilinear_0(Texture2D<float4 > img_tex_0, float2 uv_0)
+float3 sample_bilinear_0(Texture2D<float4 > img_tex_0, float2 uv_1)
 {
-    int2 _S23 = TextureImage_size_0(img_tex_0);
-    float2 p_0 = uv_0 * float2(_S23) - 0.5f;
+    int2 _S24 = TextureImage_size_0(img_tex_0);
+    float2 p_0 = uv_1 * float2(_S24) - 0.5f;
     float2 p0_0 = floor(p_0);
     float2 f_0 = p_0 - p0_0;
-    int2 _S24 = int2(p0_0);
-    int2 _S25 = (int2)int(0);
-    int2 _S26 = _S23 - int(1);
-    int2 i0_0 = clamp(_S24, _S25, _S26);
-    int2 i1_0 = clamp(_S24 + int(1), _S25, _S26);
-    int _S27 = i0_0.x;
-    int _S28 = i0_0.y;
-    int _S29 = i1_0.x;
-    float3 _S30 = (float3)f_0.x;
-    int _S31 = i1_0.y;
-    return lerp(lerp(TextureImage_load_0(img_tex_0, int2(_S27, _S28)), TextureImage_load_0(img_tex_0, int2(_S29, _S28)), _S30), lerp(TextureImage_load_0(img_tex_0, int2(_S27, _S31)), TextureImage_load_0(img_tex_0, int2(_S29, _S31)), _S30), (float3)f_0.y);
+    int2 _S25 = int2(p0_0);
+    int2 _S26 = (int2)int(0);
+    int2 _S27 = _S24 - int(1);
+    int2 i0_0 = clamp(_S25, _S26, _S27);
+    int2 i1_0 = clamp(_S25 + int(1), _S26, _S27);
+    int _S28 = i0_0.x;
+    int _S29 = i0_0.y;
+    int _S30 = i1_0.x;
+    float3 _S31 = (float3)f_0.x;
+    int _S32 = i1_0.y;
+    return lerp(lerp(TextureImage_load_0(img_tex_0, int2(_S28, _S29)), TextureImage_load_0(img_tex_0, int2(_S30, _S29)), _S31), lerp(TextureImage_load_0(img_tex_0, int2(_S28, _S32)), TextureImage_load_0(img_tex_0, int2(_S30, _S32)), _S31), (float3)f_0.y);
 }
 
-float2 texel_uv_0(int2 texel_1, int2 size_0)
+float2 texel_uv_0(int2 texel_1, int2 size_1)
 {
-    return (float2(texel_1) + 0.5f) / float2(size_0);
+    return (float2(texel_1) + 0.5f) / float2(size_1);
 }
 
-float sigmoid_0(float x_4)
+float3 upsample_0(int2 texel_2, int2 out_size_0, Texture2D<float4 > mip_tex_0, Texture2D<float4 > low_tex_0, StructuredBuffer<float > params_buf_4, int offset_4)
 {
-    return 1.0f / (1.0f + exp(- x_4));
-}
-
-float3 upsample_0(int2 texel_2, int2 out_size_0, Texture2D<float4 > mip_tex_0, Texture2D<float4 > low_tex_0, StructuredBuffer<float > params_buf_3, int offset_3)
-{
-    float2 uv_1 = texel_uv_0(texel_2, out_size_0);
-    float  x_5[int(2)] = { uv_1.x, uv_1.y };
-    float  _S32[int(1)];
-    MLP_eval_0(params_buf_3, offset_3, x_5, _S32);
-    float t_0 = sigmoid_0(_S32[int(0)]);
-    return (1.0f - t_0) * TextureImage_load_0(mip_tex_0, texel_2) + t_0 * sample_bilinear_0(low_tex_0, uv_1);
+    float2 uv_2 = texel_uv_0(texel_2, out_size_0);
+    float _S33 = blend_0(uv_2, out_size_0, params_buf_4, offset_4);
+    return (1.0f - _S33) * TextureImage_load_0(mip_tex_0, texel_2) + _S33 * sample_bilinear_0(low_tex_0, uv_2);
 }
 
 int2 target_size_0()
@@ -172,15 +177,15 @@ int2 target_size_0()
 [numthreads(8, 8, 1)]
 void Upsample(uint3 id_0 : SV_DispatchThreadID)
 {
-    int2 size_1 = target_size_0();
-    int2 _S33 = int2(id_0.xy);
-    if(any(_S33 >= size_1))
+    int2 size_2 = target_size_0();
+    int2 _S34 = int2(id_0.xy);
+    if(any(_S34 >= size_2))
     {
         return;
     }
-    uint2 _S34 = uint2(_S33);
-    int _S35 = ((_ParamOffset));
-    _Target[_S34] = float4(upsample_0(_S33, size_1, _Source, _SourceLow, _GlareParams, _S35), 1.0f);
+    uint2 _S35 = uint2(_S34);
+    int _S36 = ((_ParamOffset));
+    _Target[_S35] = float4(upsample_0(_S34, size_2, _Source, _SourceLow, _GlareParams, _S36), 1.0f);
     return;
 }
 

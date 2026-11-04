@@ -46,6 +46,9 @@ public float[Out] dense<let In : int, let Out : int, P : IParams>(P params, no_d
 // In -> Hidden -> (leaky ReLU) -> Out.
 public struct MLP<let In : int, let Hidden : int, let Out : int>
 {
+    public static const int IN_SIZE = In;
+    public static const int HIDDEN_SIZE = Hidden;
+    public static const int OUT_SIZE = Out;
     public static const int PARAM_COUNT = (In * Hidden + Hidden) + (Hidden * Out + Out);
 
     [Differentiable]

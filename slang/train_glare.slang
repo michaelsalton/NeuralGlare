@@ -81,12 +81,19 @@ float3 upsample_chain_pass(int2 texel, int2 out_size, Tensor<float, 3> mip,
     return upsample(texel, out_size, m, l, p, offset);
 }
 
+// LevelMLP's (inputs, hidden, outputs, PARAM_COUNT): how Python sizes and offsets the shared
+// parameter buffer, so glare.slang stays the one source of truth for the network shape.
+int4 level_mlp_sizes()
+{
+    return int4(LevelMLP.IN_SIZE, LevelMLP.HIDDEN_SIZE, LevelMLP.OUT_SIZE, LevelMLP.PARAM_COUNT);
+}
+
+// The blend weights at screen positions uv for a frame of `size` (unused by MLP(uv); see blend).
 [Differentiable]
-float2 filter_weights(float2 uv, DiffTensor<float, 1> params)
+float2 filter_weights(float2 uv, int2 size, DiffTensor<float, 1> params)
 {
     TensorParams p = { params };
-    float x[2] = { uv.x, uv.y };
-    float z[1] = LevelMLP.eval(p, 0, x);
-    float t = sigmoid(z[0]);
-    return float2(1.0 - t, t);              // as upsample() in glare.slang
+    float t = blend(uv, size, p, 0);
+    return float2(1.0 - t, t);                // as upsample() in glare.slang
 }
+

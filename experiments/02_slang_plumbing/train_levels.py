@@ -12,12 +12,14 @@ pass runs in Slang. Step 4 replaces this with the Slang pyramid trained end to e
 """
 
 import argparse
+import functools
 import json
 import platform
 import subprocess
 import time
 import tomllib
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import slangpy as spy
@@ -34,9 +36,9 @@ from neuralglare.io import read_hdr
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "outputs" / "02_slang_plumbing"
-IN, HIDDEN, OUT = 2, 16, 1          # must match LevelMLP in glare.slang
 VIEWS = ("center", "mid", "corner")
 EPS = 1e-3                          # same ε as the Phase 0 log loss
+FRAME_SIZE = (1920, 1080)           # (w, h) of the Phase 1 frames: filter_weights' H needs the aspect
 
 
 def upsample_targets(mips, scatter):
@@ -61,14 +63,34 @@ def load_split(split, p, scatter):
     return items
 
 
-def init_params(gen):
-    """Hidden layer: He init, so the ReLU features start well spread. Output layer: small
-    weights and bias 0, so every level starts near t = sigmoid(0) = 0.5, w = (0.5, 0.5),
-    instead of at random."""
-    w1 = torch.randn(HIDDEN, IN, generator=gen) * np.sqrt(2.0 / IN)
-    b1 = torch.zeros(HIDDEN)
-    w2 = torch.randn(OUT, HIDDEN, generator=gen) * np.sqrt(1.0 / HIDDEN) * 0.1
-    b2 = torch.zeros(OUT)
+class LevelMLP(NamedTuple):
+    """One level's network shape: glare.slang's LevelMLP, as level_mlp() reads it."""
+    inputs: int
+    hidden: int
+    outputs: int
+    param_count: int        # level k's network starts at k * param_count in the shared buffer
+
+
+@functools.cache
+def level_mlp(module):
+    """LevelMLP's shape, read from the loaded train_glare.slang and never restated in Python:
+    glare.slang is the one source of truth, so a Phase 2 change to the network can't leave
+    Python sizing or offsetting the parameter buffer for the old one."""
+    v = module.level_mlp_sizes()
+    net = LevelMLP(int(v.x), int(v.y), int(v.z), int(v.w))
+    assert net.param_count == (net.inputs * net.hidden + net.hidden) + (
+        net.hidden * net.outputs + net.outputs), f"PARAM_COUNT isn't mlp.slang's layout: {net}"
+    return net
+
+
+def init_params(gen, net):
+    """One LevelMLP's parameters, in mlp.slang's layout. Hidden layer: He init, so the ReLU
+    features start well spread. Output layer: small weights and bias 0, so every level starts
+    near t = sigmoid(0) = 0.5, w = (0.5, 0.5), instead of at random."""
+    w1 = torch.randn(net.hidden, net.inputs, generator=gen) * np.sqrt(2.0 / net.inputs)
+    b1 = torch.zeros(net.hidden)
+    w2 = torch.randn(net.outputs, net.hidden, generator=gen) * np.sqrt(1.0 / net.hidden) * 0.1
+    b2 = torch.zeros(net.outputs)
     return torch.cat([w1.flatten(), b1, w2.flatten(), b2])
 
 
@@ -142,7 +164,7 @@ def main():
         test = [level_tensors(item, k) for item in data["test"]]
         h, w = train[0][0].shape[:2]
 
-        params = init_params(gen).cuda().requires_grad_(True)
+        params = init_params(gen, level_mlp(module)).cuda().requires_grad_(True)
         optimizer = torch.optim.Adam([params], lr=args.lr)
         schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.steps)
         t0 = time.perf_counter()
@@ -159,7 +181,7 @@ def main():
                                         for m, l, t in train]))
             test_loss = float(np.mean([relative_loss(run(module, m, l, params), t).item()
                                        for m, l, t in test]))
-            weights = module.filter_weights(uv=grid_uv, params=params)
+            weights = module.filter_weights(uv=grid_uv, size=spy.int2(w, h), params=params)
             max_dev = (weights - exact).abs().max().item()
         np.save(OUT_DIR / f"level{k}_params.npy", params.detach().cpu().numpy())
         results["levels"].append({"level": k, "size": [w, h], "train_loss": train_loss,

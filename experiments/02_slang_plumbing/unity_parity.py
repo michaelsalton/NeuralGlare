@@ -9,7 +9,9 @@ export --weights FILE copies an engine weight file into the Unity project (UNITY
 file ParityHarness loads) and records its source in frames.json; compare reads that same copy,
 so both sides run the same bytes. Default: the selected Phase 2 step 1 model. Weights with one
 level more than the pyramid (Phase 2) add the full-resolution level, whose "mip" is the input
-frame (train_points.py glare()).
+frame (train_points.py glare()). Next to the copy, export writes UNITY_LAYOUT: LevelMLP's shape as
+glare.slang declares it (level_mlp), so ParityHarness offsets the buffer by the network the HLSL
+was compiled from instead of a number typed into C#.
 
 Images cross as raw little-endian float32 RGBA, row 0 = texel y = 0, no header: no EXR codec,
 no texture importer, no y flip. (Unity's textures are bottom-up in UV space, so an imported EXR
@@ -31,20 +33,34 @@ from pathlib import Path
 import numpy as np
 import slangpy as spy
 import torch
-from train_levels import OUT_DIR, ROOT, VIEWS, environment
-from train_pyramid import PARAM_COUNT, slang_mips
+from train_levels import OUT_DIR, ROOT, VIEWS, environment, level_mlp
+from train_pyramid import slang_mips
 
 from neuralglare.baselines.pyramid_bloom import URPBloomParams
 from neuralglare.io import read_hdr
 
 PARITY_DIR = OUT_DIR / "unity_parity"
-WEIGHTS = (ROOT / "outputs" / "03_train_network" / "default" / "export" /
+WEIGHTS = (ROOT / "outputs" / "03_train_network" / "default" / "baseline" / "export" /
            "glare_params_lerp_abs_fitted_lr0.0001.bytes")   # selected step 1 model (2026-11-03)
 UNITY_WEIGHTS = (ROOT / "engines" / "unity" / "NeuralGlareURP" / "Assets" / "NeuralGlare" /
                  "Data" / "glare_params.bytes")              # ParityHarness.WeightsPath
+UNITY_LAYOUT = UNITY_WEIGHTS.with_suffix(".json")             # ParityHarness.LayoutPath
 P = URPBloomParams(threshold=0.0, clamp_max=np.inf, max_iterations=6)  # as train_pyramid.py
 RTOL = 1e-4             # test_glare_chain.py's Slang-vs-NumPy tolerance (float32 vs float64)
 ATOL_REL = 1e-7         # ~float32 ulp of the brightest texel, inherited by dark neighbours
+
+
+def load_module():
+    spy.set_allow_torch_fallback(True)
+    device = spy.create_torch_device(type=spy.DeviceType.vulkan, include_paths=[ROOT / "slang"])
+    return device, spy.Module.load_from_file(device, "train_glare.slang")
+
+
+def levels_of(module, n_weights):
+    """How many LevelMLP networks a weight file of n_weights floats holds."""
+    count = level_mlp(module).param_count
+    assert n_weights % count == 0, f"{n_weights} weights: not whole levels of {count}"
+    return n_weights // count
 
 
 def frames():
@@ -68,15 +84,14 @@ def python_pyramid(module, img, params):
     full-resolution level's output if the weights have one (None otherwise)."""
     mips = slang_mips(module, img, P)
     n = len(mips) - 1
-    levels = params.numel() // PARAM_COUNT
-    assert params.numel() % PARAM_COUNT == 0 and levels in (n, n + 1), (
-        f"{params.numel()} weights: not {n} or {n + 1} levels of {PARAM_COUNT}")
+    levels = levels_of(module, params.numel())
+    assert levels in (n, n + 1), f"{levels} levels of weights, the pyramid has {n} (+ 1)"
 
     def level(mip, low, k):
         h, w = mip.shape[:2]
         return module.upsample_chain_pass(texel=spy.grid((h, w)), out_size=spy.int2(w, h),
                                           mip=mip, low=low, params=params,
-                                          offset=k * PARAM_COUNT)
+                                          offset=k * level_mlp(module).param_count)
 
     ups = [None] * len(mips)
     ups[-1] = mips[-1]
@@ -100,7 +115,14 @@ def stats(unity, python):
 
 def export(weights):
     PARITY_DIR.mkdir(parents=True, exist_ok=True)
+    _, module = load_module()
+    net = level_mlp(module)
+    levels = levels_of(module, Path(weights).stat().st_size // 4)
     shutil.copyfile(weights, UNITY_WEIGHTS)
+    UNITY_LAYOUT.write_text(json.dumps(
+        {"inputs": net.inputs, "hidden": net.hidden, "outputs": net.outputs,
+         "paramCount": net.param_count, "levels": levels,
+         "source": "slang/glare.slang LevelMLP, via unity_parity.py export"}, indent=2))
     manifest = []
     for name in frames():
         img = read_hdr(str(ROOT / "data" / "inputs" / f"{name}.exr"))[..., :3]
@@ -109,13 +131,16 @@ def export(weights):
     (PARITY_DIR / "frames.json").write_text(json.dumps(
         {"frames": manifest, "weights": Path(weights).resolve().relative_to(ROOT).as_posix()},
         indent=2))
-    print(f"wrote {len(manifest)} frames to {PARITY_DIR}; copied {weights} to {UNITY_WEIGHTS}")
+    print(f"wrote {len(manifest)} frames to {PARITY_DIR}; copied {weights} to {UNITY_WEIGHTS} "
+          f"({levels} levels of {net.param_count}) and its layout to {UNITY_LAYOUT.name}")
 
 
 def compare(_weights=None):
-    spy.set_allow_torch_fallback(True)
-    device = spy.create_torch_device(type=spy.DeviceType.vulkan, include_paths=[ROOT / "slang"])
-    module = spy.Module.load_from_file(device, "train_glare.slang")
+    device, module = load_module()
+    layout = json.loads(UNITY_LAYOUT.read_text())
+    assert layout["paramCount"] == level_mlp(module).param_count, (
+        f"Unity ran {layout['paramCount']}-float levels, glare.slang now has "
+        f"{level_mlp(module).param_count}: rerun export, build_hlsl.sh and Unity")
     # Read the engine weight file Unity loaded, not the .npy, so the shared format is tested too
     params = torch.from_numpy(np.fromfile(UNITY_WEIGHTS, "<f4")).cuda()
     source = json.loads((PARITY_DIR / "frames.json").read_text())["weights"]

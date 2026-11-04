@@ -22,6 +22,8 @@ a change of the pupil resampling grid whose effect the table convergence check b
 (doubling table_px changes the corner PSF by 0.006 %).
 
     uv run python experiments/03_train_network/psf_bank.py --run default --workers 8
+    uv run python experiments/03_train_network/psf_bank.py --run default --oversample 5 --only test
+                                            # 5x test PSFs for ceiling.py (aperture_fine)
 """
 
 import argparse
@@ -68,15 +70,16 @@ def test_positions():
 
 
 def exact_psf(job):
-    """K x K x 3 PSF at pixel (x, y), each channel summing to 1. Runs in a worker process."""
-    run, x, y, part = job
+    """K x K x 3 PSF at pixel (x, y), each channel summing to 1 (K·s across with oversample
+    s). Runs in a worker process."""
+    run, x, y, part, oversample = job
     if os.path.exists(part):
         with np.load(part) as z:
             return z["psf"]
     cfg = CONFIGS[run]
     H, d = field_at(cfg, x, y)
     tab = lens_trace.build_table(cfg, [H], verbose=False)
-    psf = psf_rgb(cfg, tab, H, d, cfg.spectral.rgb_weights()).astype(np.float32)
+    psf = psf_rgb(cfg, tab, H, d, cfg.spectral.rgb_weights(), oversample).astype(np.float32)
     np.savez(part, psf=psf, x=x, y=y, rayoptics_version=tab["rayoptics_version"])
     return psf
 
@@ -85,6 +88,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", choices=list(CONFIGS), default="default")
     ap.add_argument("--workers", type=int, default=os.cpu_count())
+    ap.add_argument("--oversample", type=int, default=1,
+                    help="odd s > 1: the same PSFs on a K·s grid, written to psf_bank_<run>_x<s>.npz "
+                         "(ceiling.py's aperture_fine oracle; decision log 2026-11-04)")
+    ap.add_argument("--only", choices=["all", "test"], default="all",
+                    help="test: the 35 test positions only")
     args = ap.parse_args()
     cfg = CONFIGS[args.run]
     if lp.PLACEHOLDER:
@@ -96,15 +104,18 @@ def main():
     train = train_positions(cfg, *split["train_grid"], split["train_seed"])
     test = test_positions()
     assert not set(train) & set(test), "a training position coincides with a test position"
+    if args.only == "test":
+        train = []
     positions = train + test
     names = ["train"] * len(train) + ["test"] * len(test)
 
-    out = ROOT / psf_bank_path(args.run)
+    out = ROOT / psf_bank_path(args.run, args.oversample)
     parts = out.with_suffix("")
     parts = parts.parent / f"{parts.name}_parts"
     parts.mkdir(parents=True, exist_ok=True)
-    jobs = [(args.run, x, y, str(parts / f"{x}_{y}.npz")) for x, y in positions]
-    print(f"{len(train)} train + {len(test)} test positions, {args.workers} workers, "
+    jobs = [(args.run, x, y, str(parts / f"{x}_{y}.npz"), args.oversample) for x, y in positions]
+    print(f"{len(train)} train + {len(test)} test positions, oversample {args.oversample}, "
+          f"{args.workers} workers, "
           f"{sum(os.path.exists(j[3]) for j in jobs)} already done")
 
     # One FFT / BLAS thread per process: the parallelism is over positions
@@ -120,7 +131,8 @@ def main():
     fields = [field_at(cfg, x, y) for x, y in positions]
     np.savez_compressed(
         out,
-        psf=np.stack(psfs),                                         # (N, K, K, 3) float32
+        psf=np.stack(psfs),                                         # (N, K·s, K·s, 3) float32
+        oversample=args.oversample,
         pos_px=np.array(positions, np.int32),                       # (N, 2) x, y
         field_height=np.array([f[0] for f in fields]),              # (N,)
         field_dir=np.array([f[1] for f in fields]),                 # (N, 2) unit, from the centre

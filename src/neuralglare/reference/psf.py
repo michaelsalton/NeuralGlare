@@ -89,9 +89,17 @@ def subsamples_per_pixel(cfg, u_max=1.0):
     return b if b % 2 else b + 1    # odd, so pixel bins are centred on the PSF origin
 
 
-def psf_mono(cfg, lam_um, il, ih, field_dir, tab):
-    """K×K PSF for one wavelength and field position, integrated over pixels, sum 1."""
+def psf_mono(cfg, lam_um, il, ih, field_dir, tab, oversample=1):
+    """K×K PSF for one wavelength and field position, integrated over pixels, sum 1.
+
+    oversample s (odd) returns it on a K·s grid instead, integrated over 1/s-pixel cells, so
+    summing s×s blocks gives the pixel PSF. b is raised to the next odd multiple of s: that only
+    zero-pads the pupil field (R doesn't depend on b), and s = 1 leaves b unchanged."""
+    assert oversample % 2 == 1, "oversample must be odd, so cells stay centred on the PSF origin"
     K, b = cfg.kernel_px, subsamples_per_pixel(cfg, float(tab["u_max"]))
+    b = oversample * math.ceil(b / oversample)
+    if b % 2 == 0:
+        b += oversample
     M = K * b
     R = 0.5 * K * cfg.camera.pixel_pitch_um / (lam_um * cfg.camera.f_number)  # samples per unit u
 
@@ -108,7 +116,8 @@ def psf_mono(cfg, lam_um, il, ih, field_dir, tab):
 
     F = sfft.fftshift(sfft.fft2(sfft.ifftshift(E), workers=-1))
     P = (F.real ** 2 + F.imag ** 2).astype(np.float64)
-    P = P.reshape(K, b, K, b).sum(axis=(1, 3))   # exact pixel integration
+    n, q = K * oversample, b // oversample
+    P = P.reshape(n, q, n, q).sum(axis=(1, 3))   # exact pixel (or 1/s-pixel cell) integration
     return P / P.sum()
 
 
@@ -133,15 +142,16 @@ def field_nodes(cfg):
     return nodes
 
 
-def psf_rgb(cfg, tab, H, field_dir, wrgb=None):
+def psf_rgb(cfg, tab, H, field_dir, wrgb=None, oversample=1):
     """K×K×3 PSF at field height H (must be in the table) and direction; each channel
-    sums to 1."""
-    K = cfg.kernel_px
+    sums to 1. oversample s: on a K·s grid of 1/s-pixel cells (psf_mono)."""
+    n = cfg.kernel_px * oversample
     wrgb = cfg.spectral.rgb_weights() if wrgb is None else wrgb
     ih = lens_trace.height_index(tab, H)
-    acc = np.zeros((K, K, 3))
+    acc = np.zeros((n, n, 3))
     for li, lam in enumerate(cfg.spectral.wavelengths_um):
-        acc += psf_mono(cfg, lam, li, ih, field_dir, tab)[..., None] * wrgb[li][None, None, :]
+        acc += (psf_mono(cfg, lam, li, ih, field_dir, tab, oversample)[..., None]
+                * wrgb[li][None, None, :])
     return acc / acc.sum(axis=(0, 1), keepdims=True)
 
 

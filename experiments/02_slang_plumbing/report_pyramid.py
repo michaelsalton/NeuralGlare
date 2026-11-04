@@ -20,8 +20,8 @@ import cv2
 import numpy as np
 import slangpy as spy
 import torch
-from train_levels import EPS, OUT_DIR, ROOT, relative_loss, upsample_targets
-from train_pyramid import PARAM_COUNT, chain, slang_mips
+from train_levels import EPS, FRAME_SIZE, OUT_DIR, ROOT, relative_loss, upsample_targets
+from train_pyramid import chain, level_params, slang_mips
 
 from neuralglare.baselines.pyramid_bloom import (
     URPBloomParams,
@@ -70,8 +70,8 @@ def weight_maps(module, params, n_levels):
     uv = torch.tensor(np.stack([gu.ravel(), gv.ravel()], -1), dtype=torch.float32,
                       device="cuda")
     with torch.no_grad():
-        return [module.filter_weights(uv=uv, params=params[k * PARAM_COUNT:(k + 1) *
-                                                            PARAM_COUNT].contiguous())
+        return [module.filter_weights(uv=uv, size=spy.int2(*FRAME_SIZE),
+                                      params=level_params(module, params, k))
                 .cpu().numpy().reshape(*WEIGHT_GRID, 2) for k in range(n_levels)]
 
 
