@@ -25,6 +25,29 @@ public float sigmoid(float x)
     return 1.0 / (1.0 + exp(-x));
 }
 
+// Positive weights summing to 1. Subtracting the max first keeps exp from overflowing; softmax
+// ignores a common shift, so the gradients through it cancel exactly.
+[Differentiable]
+public float[N] softmax<let N : int>(float z[N])
+{
+    float m = z[0];
+    [ForceUnroll]
+    for (int i = 1; i < N; ++i)
+        m = max(m, z[i]);
+    float w[N];
+    float sum = 0.0;
+    [ForceUnroll]
+    for (int i = 0; i < N; ++i)
+    {
+        w[i] = exp(z[i] - m);
+        sum += w[i];
+    }
+    [ForceUnroll]
+    for (int i = 0; i < N; ++i)
+        w[i] /= sum;
+    return w;
+}
+
 // One dense layer: y = W x + b, reading parameters starting at `offset`.
 [Differentiable]
 public float[Out] dense<let In : int, let Out : int, P : IParams>(P params, no_diff int offset,

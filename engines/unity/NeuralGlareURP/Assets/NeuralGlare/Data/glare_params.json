@@ -4,5 +4,10 @@
   "outputs": 4,
   "paramCount": 116,
   "levels": 6,
-  "source": "slang/glare.slang LevelMLP, via unity_parity.py export"
+  "spikeParamCount": 99,
+  "profileCount": 24,
+  "rays": 14,
+  "passes": 3,
+  "spikeSource": "input",
+  "source": "slang/glare.slang LevelMLP and SpikeMLP"
 }

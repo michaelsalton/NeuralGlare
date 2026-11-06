@@ -1,0 +1,8 @@
+#pragma kernel Streak
+
+// Declared here, not in the generated HLSL: Unity only binds plain uniforms in $Globals
+int _ParamOffset;   // the profile logits' start
+int _Ray;
+int _Stage;
+
+#include "../Generated/glare_Streak.hlsl"

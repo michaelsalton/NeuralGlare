@@ -3,8 +3,10 @@
 Model: the Phase 1 pyramid (2 taps per level, grey weights, input uv) plus one level at full
 resolution, whose "mip" is the input frame itself:
     out = (1 - t(uv)) * input + t(uv) * bilinear(up[0]),   t = sigmoid(MLP(uv))
-(Step 2, field_aligned_offsets: every level has 4 taps, w = softmax(MLP(uv)) over mip(x),
-mip(x + o), mip(x - o) and the level below, o = H * d_hat texels; glare.slang.)
+(Step 2, coma: every level has 4 taps, w = softmax(MLP(uv)) over mip(x),
+mip(x + o), mip(x - o) and the level below, o = H * d_hat texels; glare.slang. Step 2, spikes,
+--arch spikes: 14 streaked rays from mip 0, two families, mixed into the full-resolution output by
+softmax(SpikeMLP(uv)); glare.slang. --arch offsets runs without them.)
 Phase 1's up[0] is half resolution, while the lens reference is the full frame convolved with
 the PSF, most of whose energy sits in a core a few pixels wide. The input path carries the core,
 the pyramid the halo. Same upsample kernel, one more network in the weight buffer. Every level
@@ -40,12 +42,15 @@ training runs before any evaluation (see train_pyramid.py).
 --init fitted (default) starts every level at Phase 0's fitted pyramid bloom as a constant
 blend, energy-normalised (see fitted_pyramid_init), so the "Init" row is close to Phase 0's
 fitted-pyramid numbers but not identical. --init neutral starts every level at t = 0.5.
-Outputs are named train_points_<ARCH>_<loss>_<init>_lr<lr>, plus _seed<n> for --seed other than 0
+Outputs are named train_points_<arch>_<loss>_<init>_lr<lr>, plus _seed<n> for --seed other than 0
 (seed spread, decision log 2026-11-03). Older runs kept their names: before
 the lerp (2-weight networks), and before the validation frame (squared loss on all 9 frames,
-train_points_<ARCH>_<init>_lr<lr>).
+train_points_<arch>_<init>_lr<lr>).
 
     uv run python experiments/03_train_network/train_points.py --run default --study baseline
+    uv run python experiments/03_train_network/train_points.py --run default --study spikes
+    uv run python experiments/03_train_network/train_points.py --run default --study coma --arch offsets --seed 1
+                                                    # delta re-measurement (decision log 2026-11-04)
 
 --study names the folder the run's files go to, outputs/03_train_network/<run>/<study>/<stage>/
 (STUDIES; decision log 2026-11-03): one folder per Step 2 ablation, so a study's reports, raw
@@ -73,17 +78,31 @@ sys.path.insert(0, str(ROOT / "experiments" / "01_gap_study"))
 sys.path.insert(0, str(ROOT / "experiments" / "02_slang_plumbing"))
 from evaluate_gap import BINS, field_height
 from exact_pointgrid import splat
-from train_levels import environment, init_params, level_mlp
+from train_levels import (
+    engine_layout,
+    environment,
+    has_spikes,
+    init_params,
+    level_mlp,
+    spike_layout,
+)
 from train_pyramid import level_params, slang_mips
 
 EXPERIMENT = "03_train_network"
-STUDIES = ("setup", "baseline", "radial_input", "field_aligned_offsets")   # add one per ablation
-ARCH = "offsets"                    # glare.slang's level form; part of every output name
-                                    # (lerp: MLP(uv), Step 1, current best; lerp_h: MLP(H),
-                                    # radial_input, rejected; offsets: 4 taps, softmax(MLP(uv)),
-                                    # field_aligned_offsets; decision log 2026-11-04)
+STUDIES = ("setup", "baseline", "radial_input", "coma", "spikes", "spikes_full")   # one per ablation
+# --arch, part of every output name, and the image the spike rays are streaked from (None: no
+# spike term). glare.slang runs all three: offsets (4 taps per level, softmax(MLP(uv)), study
+# coma), spikes (offsets plus rays from mip 0, study spikes, current best), spikes_full (rays from
+# the input frame, study spikes_full; decision log 2026-11-05). Earlier: lerp (MLP(uv), Step 1)
+# and lerp_h (MLP(H), radial_input), which glare.slang no longer runs.
+SPIKE_SOURCE = {"spikes_full": "input", "spikes": "mip0", "offsets": None}
+ARCHS = tuple(SPIKE_SOURCE)
 OFFSET_SHARE = 0.01                 # each offset tap's share of the mip's weight at init
                                     # (decision log 2026-11-04)
+SPIKE_SHARE = 1e-3                  # each ray family's share of the light at init: the bank's spikes
+                                    # carry ~0.25 % of the PSF's light, ~1.2e-3 per family
+SPIKE_DECAY = {"mip0": 8.0,         # init ray profile exp(-d / decay), d in texels of the rays'
+               "input": 16.0}       # source: 16 full-resolution px either way (2026-11-04, -05)
 T_PASS = 1e-4                       # default blend of a pass-through level (sigmoid never
                                     # reaches 0); its gradient carries t(1 - t), so a tiny t
                                     # nearly freezes the level (decision log 2026-11-02)
@@ -144,6 +163,21 @@ def fitted_pyramid_init(gen, net, n_levels, fit, t_pass=T_PASS):
     return torch.cat(nets)
 
 
+def spike_init(gen, module, share=SPIKE_SHARE, decay=SPIKE_DECAY):
+    """The spike section: SpikeMLP with its output layer 0 and biases log(1 - 2 share, share,
+    share), so each family starts with `share` of the light everywhere, then the profile logits
+    z[p][n] = -n 4^p / decay for both families. A ray's weight at distance d is the product of
+    one softmax weight per base-4 digit of d, so these logits give exactly exp(-d / decay)
+    (normalised over 0..63 texels)."""
+    lay = spike_layout(module)
+    net = lay.net
+    w = init_params(gen, net)
+    w[net.inputs * net.hidden + net.hidden:-net.outputs] = 0   # W2: output independent of uv
+    w[-net.outputs:] = torch.tensor(np.log([1 - 2 * share, share, share]), dtype=w.dtype)
+    z = [-n * lay.taps ** p / decay for p in range(lay.passes) for n in range(lay.taps)]
+    return torch.cat([w, torch.tensor(z * 2, dtype=w.dtype)])
+
+
 def render(bank, sel, shape):
     """Input frame (sources at INTENSITY) and its exact reference, from the bank's PSFs."""
     img = np.zeros(shape, np.float32)
@@ -164,12 +198,41 @@ def level(module, mip, low, params, k):
                                       offset=k * level_mlp(module).param_count)
 
 
-def glare(module, mips, src, params):
-    """The pyramid (levels 0..n-1) and the full-resolution level n, whose mip is the input."""
+def spikes(module, source, base, params, offset, families=False):
+    """The spike term (glare.slang): every ray streaked from source (mip 0 or the input frame,
+    SPIKE_SOURCE) in its passes, each family's rays summed, then mixed into the full-resolution
+    output base by SpikeMLP. offset: where the spike section starts in params (SpikeMLP, then the
+    profile logits). families: also return the two family sums (even, odd), for unity_parity.py."""
+    lay = spike_layout(module)
+    profile = offset + lay.net.param_count
+    h, w = source.shape[:2]
+    grid = spy.grid((h, w))
+    acc = [torch.zeros_like(source), torch.zeros_like(source)]      # even, odd family
+    for ray in range(lay.rays):
+        s = source
+        for stage in range(lay.passes - 1):
+            s = module.streak_pass(texel=grid, src=s, params=params, profile=profile, ray=ray,
+                                   stage=stage)
+        acc[ray % 2] = module.streak_accumulate_pass(texel=grid, src=s, acc=acc[ray % 2],
+                                                     params=params, profile=profile, ray=ray,
+                                                     stage=lay.passes - 1)
+    h, w = base.shape[:2]
+    out = module.spike_pass(texel=spy.grid((h, w)), out_size=spy.int2(w, h), base=base,
+                            even=acc[0], odd=acc[1], params=params, offset=offset)
+    return (out, acc) if families else out
+
+
+def glare(module, mips, src, params, source="mip0"):
+    """The pyramid (levels 0..n-1), the full-resolution level n, whose mip is the input, and
+    the spike term on top if params hold one, its rays streaked from `source` (SPIKE_SOURCE)."""
     out = mips[-1]
     for k in reversed(range(len(mips) - 1)):
         out = level(module, mips[k], out, params, k)
-    return level(module, src, out, params, len(mips) - 1)
+    out = level(module, src, out, params, len(mips) - 1)
+    if has_spikes(module, params.numel(), len(mips)):
+        out = spikes(module, {"mip0": mips[0], "input": src}[source], out, params,
+                     len(mips) * level_mlp(module).param_count)
+    return out
 
 
 def prepare(module, img, ref=None):
@@ -184,11 +247,11 @@ def log_loss(out, ref, kind):
     return (d.abs() if kind == "abs" else d ** 2).mean()
 
 
-def frames_loss(module, data, params, kind):
+def frames_loss(module, data, params, kind, source="mip0"):
     """The objective over a set of frames (training or validation): mean of the per-frame
     losses. One frame's loss isn't comparable across steps (frames hold 15 or 18 sources)."""
     with torch.no_grad():
-        return float(np.mean([log_loss(glare(module, mips, src, params), ref, kind).item()
+        return float(np.mean([log_loss(glare(module, mips, src, params, source), ref, kind).item()
                               for mips, src, ref in data]))
 
 
@@ -208,11 +271,11 @@ def window_records(out, ref, positions, size, ppd):
     return records
 
 
-def evaluate(module, params, img, ref, positions, size, ppd):
+def evaluate(module, params, img, ref, positions, size, ppd, source="mip0"):
     """Per test source, the gap study's window metrics of the model's output."""
     mips, src, _ = prepare(module, img)
     with torch.no_grad():
-        out = glare(module, mips, src, params).cpu().numpy()
+        out = glare(module, mips, src, params, source).cpu().numpy()
     return window_records(out, ref, positions, size, ppd), float((out < 0).mean())
 
 
@@ -230,14 +293,16 @@ def view_crop(img, x, y):
     return padded[int(y):int(y) + VIEW_PX, int(x):int(x) + VIEW_PX]
 
 
-def save_views(module, params, img, positions, path):
+def save_views(module, params, img, positions, path, source="mip0"):
     """What views.py draws, saved with every run so a figure never has to re-run an old
     architecture: the output (float32, unclamped) in VIEW_PX crops around the view sources,
-    and each level's blend t over the screen, both from the Slang model."""
+    and each level's blend t over the screen (and the spike mix weights, if any), both from the
+    Slang model."""
     h, w = img.shape[:2]
     mips, src, _ = prepare(module, img)
+    extra = {}
     with torch.no_grad():
-        out = glare(module, mips, src, params).cpu().numpy()
+        out = glare(module, mips, src, params, source).cpu().numpy()
         gv, gu = np.meshgrid(np.linspace(0, 1, BLEND_GRID[0]), np.linspace(0, 1, BLEND_GRID[1]),
                              indexing="ij")
         uv = torch.tensor(np.stack([gu.ravel(), gv.ravel()], -1), dtype=torch.float32,
@@ -245,11 +310,15 @@ def save_views(module, params, img, positions, path):
         blend = np.stack([module.filter_weights(uv=uv, size=spy.int2(w, h),
                                                 params=level_params(module, params, k))
                           [:, 3].cpu().numpy().reshape(BLEND_GRID)     # the low tap: t
-                          for k in range(params.numel() // level_mlp(module).param_count)])
+                          for k in range(len(mips))])
+        if has_spikes(module, params.numel(), len(mips)):
+            mix = module.spike_mix(uv=uv, params=params,
+                                   offset=len(mips) * level_mlp(module).param_count)
+            extra["spike_mix"] = mix.cpu().numpy().T.reshape(3, *BLEND_GRID).astype(np.float32)
     pos = view_sources(positions, w, h)
     crops = np.stack([view_crop(out, x, y) for x, y in pos])
     np.savez_compressed(path, pos=np.array(pos), h=[field_height(x, y, w, h) for x, y in pos],
-                        out=crops.astype(np.float32), blend=blend.astype(np.float32))
+                        out=crops.astype(np.float32), blend=blend.astype(np.float32), **extra)
 
 
 def summarize(records):
@@ -309,6 +378,7 @@ def train(module, data, val_data, init, args, rng):
     over the training and the validation frames at step 0 (after the first gradient call,
     before any update) and every LOG_EVERY steps. slangpy: the first upsample_chain_pass call
     must carry gradients."""
+    source = SPIKE_SOURCE[args.arch] or "mip0"
     params = init.clone().cuda().requires_grad_(True)
     optimizer = torch.optim.Adam([params], lr=args.lr)
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.steps)
@@ -317,20 +387,21 @@ def train(module, data, val_data, init, args, rng):
     for step in range(1, args.steps + 1):
         mips, src, ref = data[rng.integers(len(data))]
         optimizer.zero_grad()
-        out = glare(module, mips, src, params)
+        out = glare(module, mips, src, params, source)
         assert out.grad_fn is not None, "slangpy dropped autograd (see train_pyramid.py)"
         loss = log_loss(out, ref, args.loss)
         loss.backward()
         if step == 1:                               # after the first gradient call, before any update
-            curve.append({"step": 0, "train_loss": frames_loss(module, data, params, args.loss),
-                          "val_loss": frames_loss(module, val_data, params, args.loss)})
+            curve.append({"step": 0,
+                          "train_loss": frames_loss(module, data, params, args.loss, source),
+                          "val_loss": frames_loss(module, val_data, params, args.loss, source)})
             print(f"step     0: train loss {curve[0]['train_loss']:.3e}  "
                   f"val loss {curve[0]['val_loss']:.3e}", flush=True)
         optimizer.step()
         schedule.step()
         if step % LOG_EVERY == 0 or step == args.steps:
-            full = frames_loss(module, data, params, args.loss)
-            val = frames_loss(module, val_data, params, args.loss)
+            full = frames_loss(module, data, params, args.loss, source)
+            val = frames_loss(module, val_data, params, args.loss, source)
             curve.append({"step": step, "loss": loss.item(), "train_loss": full, "val_loss": val})
             print(f"step {step:5d}: train loss {full:.3e}  val loss {val:.3e}  (this frame "
                   f"{loss.item():.3e}, {time.perf_counter() - t0:.0f}s)", flush=True)
@@ -347,6 +418,9 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--loss", choices=["abs", "sq"], default="abs",
                     help="absolute or squared log error (decision log 2026-11-03)")
+    ap.add_argument("--arch", choices=ARCHS, default=ARCHS[0],
+                    help="spikes_full / spikes: with the spike term, rays from the input frame / "
+                         "mip 0; offsets: without (the coma model)")
     ap.add_argument("--init", choices=["fitted", "neutral"], default="fitted")
     ap.add_argument("--t-pass", type=float, default=T_PASS,
                     help="--init fitted: blend of the levels URP leaves unused")
@@ -354,7 +428,7 @@ def main():
                     help="don't train: re-evaluate this run's saved weights (fits/) and keep its "
                          "training curve")
     args = ap.parse_args()
-    tag = f"_{ARCH}_{args.loss}_{args.init}_lr{args.lr:g}"
+    tag = f"_{args.arch}_{args.loss}_{args.init}_lr{args.lr:g}"
     if args.init == "fitted" and args.t_pass != T_PASS:
         tag += f"_tpass{args.t_pass:g}"
     if args.seed != 0:
@@ -389,6 +463,9 @@ def main():
         init = fitted_pyramid_init(gen, level_mlp(module), n_levels, fit, args.t_pass)
     else:
         init = torch.cat([init_params(gen, level_mlp(module)) for _ in range(n_levels)])
+    source = SPIKE_SOURCE[args.arch]
+    if source:                                      # drawn after the levels: their init is unchanged
+        init = torch.cat([init, spike_init(gen, module, decay=SPIKE_DECAY[source])])
     print(f"{len(frames)} training frames ({min(map(len, frames))}-{max(map(len, frames))} "
           f"sources), 1 validation frame ({len(val_sel)} sources), {n_levels} levels, "
           f"{init.numel()} parameters")
@@ -413,25 +490,33 @@ def main():
     val_pos = [tuple(p) for p in bank["pos_px"][val_sel]]
     results = {}
     for name, p in (("init", init.cuda()), ("trained", params)):
-        records, negative = evaluate(module, p, test_img, test_ref, test_pos, size, ppd)
-        val_records, _ = evaluate(module, p, val_img, val_ref, val_pos, size, ppd)
+        records, negative = evaluate(module, p, test_img, test_ref, test_pos, size, ppd,
+                                     source or "mip0")
+        val_records, _ = evaluate(module, p, val_img, val_ref, val_pos, size, ppd,
+                                  source or "mip0")
         results[name] = {"summary": summarize(records), "negative_fraction": negative,
                          "records": records,
                          "val": {"flip": float(np.mean([r["flip"] for r in val_records])),
                                  "log_mse": float(np.mean([r["log_mse"] for r in val_records])),
-                                 "loss": frames_loss(module, val_data, p, args.loss),
+                                 "loss": frames_loss(module, val_data, p, args.loss,
+                                                     source or "mip0"),
                                  "records": val_records}}
     trained = results["trained"]["summary"]
     answers = verdict(trained, phase0)
 
     export = out("export")
     np.save(fits / f"train_points{tag}_params.npy", params.cpu().numpy())
-    save_views(module, params, test_img, test_pos, out("eval") / f"train_points{tag}_views.npz")
+    save_views(module, params, test_img, test_pos, out("eval") / f"train_points{tag}_views.npz",
+               source or "mip0")
     params.cpu().numpy().astype("<f4").tofile(export / f"glare_params{tag}.bytes")
+    (export / f"glare_params{tag}.json").write_text(json.dumps(       # the engines' layout file
+        engine_layout(module, n_levels, source is not None, source), indent=2))
     eval_path.write_text(json.dumps({
         "environment": environment(device), "args": vars(args), "eps": EPS, "flip_floor": m.flip_floor(EPS),
         "intensity": INTENSITY, "window_px": size, "flip_ppd": ppd, "levels": n_levels,
-        "param_count": level_mlp(module).param_count, "frames": frames, "val_frame": val_sel, "seconds": seconds,
+        "param_count": level_mlp(module).param_count, "arch": args.arch, "spike_source": source,
+        "spike_param_count": init.numel() - n_levels * level_mlp(module).param_count,
+        "frames": frames, "val_frame": val_sel, "seconds": seconds,
         "curve": curve,
         "phase0": phase0, "phase0_fit": phase0_fit, "answers": answers, "results": results},
         indent=2))
@@ -441,7 +526,7 @@ def main():
              "neutral": "t = 0.5"}[args.init]
     rows += [(f"Init ({start}, before training)", results["init"]["summary"]),
              ("**Trained (this run)**", trained)]
-    report = (f"# Phase 2, {args.study}: `{ARCH}` on exact point-light PSFs ({args.run})\n\n"
+    report = (f"# Phase 2, {args.study}: `{args.arch}` on exact point-light PSFs ({args.run})\n\n"
               f"{table(rows)}\n\n"
               f"Medians over the 35 point-grid windows ({size} px). Bins: centre H < 1/3 "
               f"(n = {trained['centre']['n']}), mid (n = {trained['mid']['n']}), edge >= 2/3 "

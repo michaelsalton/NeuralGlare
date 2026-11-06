@@ -98,3 +98,59 @@ float4 filter_weights(float2 uv, int2 size, DiffTensor<float, 1> params)
     return float4(w[0], w[1], w[2], w[3]);
 }
 
+
+// Spikes (glare.slang). One pass of one ray: src is S_stage (mip 0 for stage 0), a DiffTensor
+// so the loss reaches the earlier passes' profile logits through it.
+[Differentiable]
+float3 streak_pass(int2 texel, DiffTensor<float, 3> src, DiffTensor<float, 1> params, int profile,
+                   int ray, int stage)
+{
+    DiffTensorImage s = { src };
+    TensorParams p = { params };
+    return streak(texel, s, p, profile, ray, stage);
+}
+
+// A ray's last pass, added to its family's sum so far.
+[Differentiable]
+float3 streak_accumulate_pass(int2 texel, DiffTensor<float, 3> src, DiffTensor<float, 3> acc,
+                              DiffTensor<float, 1> params, int profile, int ray, int stage)
+{
+    DiffTensorImage s = { src };
+    DiffTensorImage a = { acc };
+    TensorParams p = { params };
+    return streak_accumulate(texel, s, a, p, profile, ray, stage);
+}
+
+// The final frame: the full-resolution output mixed with the two families' rays.
+[Differentiable]
+float3 spike_pass(int2 texel, int2 out_size, DiffTensor<float, 3> base, DiffTensor<float, 3> even,
+                  DiffTensor<float, 3> odd, DiffTensor<float, 1> params, int offset)
+{
+    DiffTensorImage b = { base };
+    DiffTensorImage e = { even };
+    DiffTensorImage o = { odd };
+    TensorParams p = { params };
+    return spike_composite(texel, out_size, b, e, o, p, offset);
+}
+
+// SpikeMLP's (inputs, hidden, outputs, PARAM_COUNT) and the streaks' (RAYS, PASSES, STREAK_TAPS,
+// PROFILE_COUNT): how Python sizes the spike section of the parameter buffer, which follows the
+// levels: [levels x LevelMLP][SpikeMLP][PROFILE_COUNT logits].
+int4 spike_mlp_sizes()
+{
+    return int4(SpikeMLP.IN_SIZE, SpikeMLP.HIDDEN_SIZE, SpikeMLP.OUT_SIZE, SpikeMLP.PARAM_COUNT);
+}
+
+int4 spike_sizes()
+{
+    return int4(RAYS, PASSES, STREAK_TAPS, PROFILE_COUNT);
+}
+
+// The spike mix weights at screen positions uv: (pyramid, even rays, odd rays).
+[Differentiable]
+float3 spike_mix(float2 uv, DiffTensor<float, 1> params, int offset)
+{
+    TensorParams p = { params };
+    float w[3] = spike_weights(uv, p, offset);
+    return float3(w[0], w[1], w[2]);
+}

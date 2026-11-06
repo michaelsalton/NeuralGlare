@@ -4,7 +4,8 @@ paper's numbers are read from outputs/ and never typed by hand.
 
 Every change reports what the ablation criterion requires (decision log 2026-11-03): validation
 FLIP and its difference from the run it was compared with, in units of the noise floor δ (the
-range of validation FLIP over the Step 1 baseline's seeds 0, 1, 2, recomputed here), test FLIP
+range of validation FLIP over seeds 0, 1, 2 of the model δ was measured on at the time, NOISE:
+the Step 1 baseline, then the coma model once the parameter count passed 2x; recomputed here), test FLIP
 per H bin, edge/centre, the share of the edge gap closed, parameters, and multiply-adds per
 texel per level. The criterion column is recomputed from those numbers; the decision column is
 the decision log's (the criterion's exception, for an artefact or a cost, can't be computed).
@@ -26,23 +27,40 @@ from train_points import EXPERIMENT
 from neuralglare.paths import RUNS, run_dir
 
 BASELINE = ("baseline", "_lerp_abs_fitted_lr0.0001")
-SEEDS = ("", "_seed1", "_seed2")    # the baseline's seed runs that set δ
+SEEDS = ("", "_seed1", "_seed2")    # the seed runs that set a δ
+# The runs each δ is measured on (decision log 2026-11-03; re-measured on the coma model when the
+# spike term took the parameter count past 2x the baseline's, 2026-11-04)
+NOISE = {"baseline": BASELINE, "coma": ("coma", "_offsets_abs_fitted_lr0.0001")}
 BINS = ("centre", "mid", "edge")
 
 # One row per change, in the order they were run. against: the study it was compared with (the
-# current best at the time). mlp: LevelMLP's (inputs, hidden, outputs), checked against the run's
-# stored param_count. extra: per-texel cost the MLP's multiply-adds don't show.
+# current best at the time). delta: which NOISE run's δ the comparison used. mlp: LevelMLP's
+# (inputs, hidden, outputs), checked against the run's stored param_count; spike parameters (the
+# run's spike_param_count) are added to the total. extra: per-texel cost the level MLP's
+# multiply-adds don't show.
 ABLATIONS = [
     {"label": "Step 1 baseline: MLP(uv)", "study": "baseline",
      "tag": "_lerp_abs_fitted_lr0.0001", "against": None, "mlp": (2, 16, 1), "extra": "",
      "decision": "current best 2026-11-03, superseded 2026-11-04"},
     {"label": "Radial input: MLP(H)", "study": "radial_input",
-     "tag": "_lerp_h_abs_fitted_lr0.0001", "against": "baseline", "mlp": (1, 16, 1),
+     "tag": "_lerp_h_abs_fitted_lr0.0001", "against": "baseline", "delta": "baseline",
+     "mlp": (1, 16, 1),
      "extra": " + length()", "decision": "rejected (decision log 2026-11-04)"},
-    {"label": "Field-aligned offsets: 4 taps, softmax(MLP(uv))", "study": "field_aligned_offsets",
-     "tag": "_offsets_abs_fitted_lr0.0001", "against": "baseline", "mlp": (2, 16, 4),
-     "extra": " + 2 bilinear taps, softmax, length()",
-     "decision": "kept, current best (decision log 2026-11-04)"},
+    {"label": "Field-aligned offsets: 4 taps, softmax(MLP(uv))", "study": "coma",
+     "tag": "_offsets_abs_fitted_lr0.0001", "against": "baseline", "delta": "baseline",
+     "mlp": (2, 16, 4), "extra": " + 2 bilinear taps, softmax, length()",
+     "decision": "kept, current best 2026-11-04, superseded 2026-11-05"},
+    {"label": "Spikes: 14 streaked rays on mip 0, softmax(SpikeMLP(uv))", "study": "spikes",
+     "tag": "_spikes_abs_fitted_lr0.0001", "against": "coma", "delta": "coma", "mlp": (2, 16, 4),
+     "extra": " + 2 bilinear taps, softmax, length(); spikes: 168 fetches per mip-0 texel, "
+              "80 MACs + 2 fetches per full-res texel",
+     "decision": "kept, current best 2026-11-05, superseded 2026-11-05"},
+    {"label": "Full-resolution rays: streaked from the input, not mip 0", "study": "spikes_full",
+     "tag": "_spikes_full_abs_fitted_lr0.0001", "against": "spikes", "delta": "coma",
+     "mlp": (2, 16, 4),
+     "extra": " + 2 bilinear taps, softmax, length(); spikes: 168 fetches per full-res texel, "
+              "80 MACs + 2 fetches per full-res texel",
+     "decision": "kept, current best (decision log 2026-11-05)"},
 ]
 
 
@@ -72,9 +90,9 @@ def main():
     ap.add_argument("--run", choices=RUNS, default="default")
     args = ap.parse_args()
 
-    seeds = [load_eval(args.run, BASELINE[0], BASELINE[1] + s)["results"]["trained"]["val"]["flip"]
-             for s in SEEDS]
-    delta = max(seeds) - min(seeds)
+    seeds = {name: [load_eval(args.run, study, tag + s)["results"]["trained"]["val"]["flip"]
+                    for s in SEEDS] for name, (study, tag) in NOISE.items()}
+    deltas = {name: max(v) - min(v) for name, v in seeds.items()}
     base = load_eval(args.run, *BASELINE)
     start = base["results"]["trained"]["summary"]["edge"]["flip"]      # the edge gap's start
     target = base["phase0"]["fft_centre"]["edge"]["flip"]               # and its end
@@ -90,11 +108,13 @@ def main():
                "val_flip": val, "test_flip": {b: summary[b]["flip"] for b in BINS},
                "edge_over_centre": summary["edge_over_centre_flip"],
                "gap_closed": (start - summary["edge"]["flip"]) / (start - target),
-               "params": params * d["levels"], "macs_per_texel_level": macs,
+               "params": params * d["levels"] + d.get("spike_param_count", 0),
+               "macs_per_texel_level": macs,
                "extra_cost": a["extra"], "decision": a["decision"]}
         if a["against"]:
             diff = val - evals[a["against"]]["results"]["trained"]["val"]["flip"]
-            row |= {"val_diff": diff, "val_diff_delta": diff / delta,
+            delta = deltas[a["delta"]]
+            row |= {"val_diff": diff, "delta": a["delta"], "val_diff_delta": diff / delta,
                     "criterion": criterion(diff, delta)}
         rows.append(row)
 
@@ -102,7 +122,8 @@ def main():
              "Edge gap closed | Params | MACs / texel / level | Criterion | Decision |"),
              "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
-        diff = (f"{r['val_diff']:+.5f} ({r['val_diff_delta']:+.1f}δ)" if r["against"] else "-")
+        diff = (f"{r['val_diff']:+.5f} ({r['val_diff_delta']:+.1f}δ_{r['delta']})"
+                if r["against"] else "-")
         flips = " / ".join(f"{r['test_flip'][b]:.4f}" for b in BINS)
         lines.append(f"| {r['label']} | `{r['study']}` | {r['val_flip']:.5f} | {diff} | {flips} | "
                      f"{r['edge_over_centre']:.2f}x | {r['gap_closed']:+.0%} | {r['params']} | "
@@ -124,14 +145,15 @@ def main():
 
     out = Path(run_dir(EXPERIMENT, args.run, "ablations"))
     report = (f"# Phase 2, step 2: ablation table ({args.run})\n\n"
-              f"Noise floor δ = {delta:.6f}: the range of validation FLIP over `{BASELINE[0]}` "
-              f"seeds 0, 1, 2. Edge gap closed = ({start:.4f} − edge) / ({start:.4f} − "
+              + "".join(f"Noise floor δ_{name} = {deltas[name]:.6f}: the range of validation FLIP "
+                        f"over `{NOISE[name][0]}` seeds 0, 1, 2. " for name in NOISE)
+              + f"Edge gap closed = ({start:.4f} − edge) / ({start:.4f} − "
               f"{target:.4f}): from the Step 1 baseline's edge FLIP to the best uniform kernel's. "
               f"Test FLIP: medians over the 35 point-grid windows per H bin.\n\n"
               + "\n".join(lines) + "\n")
     (out / "ablation_table.md").write_text(report, encoding="utf-8")
     (out / "ablation_table.json").write_text(json.dumps(
-        {"delta": delta, "baseline_seed_val_flip": seeds, "gap": {"start": start, "target": target},
+        {"deltas": deltas, "seed_val_flip": seeds, "gap": {"start": start, "target": target},
          "rows": rows, "ceiling": ceiling and {k: v["summary"] for k, v in ceiling["results"].items()}},
         indent=2))
     print(f"wrote {out / 'ablation_table.md'} and .json")

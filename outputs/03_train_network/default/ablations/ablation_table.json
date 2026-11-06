@@ -1,10 +1,20 @@
 {
-  "delta": 0.00014781405528385694,
-  "baseline_seed_val_flip": [
-    0.08181161135435104,
-    0.08194440404574076,
-    0.0817965899904569
-  ],
+  "deltas": {
+    "baseline": 0.00014781405528385694,
+    "coma": 0.00021827022234599536
+  },
+  "seed_val_flip": {
+    "baseline": [
+      0.08181161135435104,
+      0.08194440404574076,
+      0.0817965899904569
+    ],
+    "coma": [
+      0.08110443900028864,
+      0.080906875928243,
+      0.081125146150589
+    ]
+  },
   "gap": {
     "start": 0.11002561450004578,
     "target": 0.06568001583218575
@@ -46,12 +56,13 @@
       "extra_cost": " + length()",
       "decision": "rejected (decision log 2026-11-04)",
       "val_diff": 0.00045228948195776,
+      "delta": "baseline",
       "val_diff_delta": 3.059854362896675,
       "criterion": "rejected"
     },
     {
       "label": "Field-aligned offsets: 4 taps, softmax(MLP(uv))",
-      "study": "field_aligned_offsets",
+      "study": "coma",
       "tag": "_offsets_abs_fitted_lr0.0001",
       "against": "baseline",
       "val_flip": 0.08110443900028864,
@@ -65,9 +76,54 @@
       "params": 696,
       "macs_per_texel_level": 96,
       "extra_cost": " + 2 bilinear taps, softmax, length()",
-      "decision": "kept, current best (decision log 2026-11-04)",
+      "decision": "kept, current best 2026-11-04, superseded 2026-11-05",
       "val_diff": -0.0007071723540623964,
+      "delta": "baseline",
       "val_diff_delta": -4.784202373071812,
+      "criterion": "kept"
+    },
+    {
+      "label": "Spikes: 14 streaked rays on mip 0, softmax(SpikeMLP(uv))",
+      "study": "spikes",
+      "tag": "_spikes_abs_fitted_lr0.0001",
+      "against": "coma",
+      "val_flip": 0.06894633223613103,
+      "test_flip": {
+        "centre": 0.06609483808279037,
+        "mid": 0.06761160492897034,
+        "edge": 0.09261874482035637
+      },
+      "edge_over_centre": 1.4013007294812063,
+      "gap_closed": 0.3925275608536373,
+      "params": 819,
+      "macs_per_texel_level": 96,
+      "extra_cost": " + 2 bilinear taps, softmax, length(); spikes: 168 fetches per mip-0 texel, 80 MACs + 2 fetches per full-res texel",
+      "decision": "kept, current best 2026-11-05, superseded 2026-11-05",
+      "val_diff": -0.012158106764157614,
+      "delta": "coma",
+      "val_diff_delta": -55.70208631063266,
+      "criterion": "kept"
+    },
+    {
+      "label": "Full-resolution rays: streaked from the input, not mip 0",
+      "study": "spikes_full",
+      "tag": "_spikes_full_abs_fitted_lr0.0001",
+      "against": "spikes",
+      "val_flip": 0.05397905558347702,
+      "test_flip": {
+        "centre": 0.0473293736577034,
+        "mid": 0.05202505737543106,
+        "edge": 0.07855923846364021
+      },
+      "edge_over_centre": 1.659841075265398,
+      "gap_closed": 0.7095715692572478,
+      "params": 819,
+      "macs_per_texel_level": 96,
+      "extra_cost": " + 2 bilinear taps, softmax, length(); spikes: 168 fetches per full-res texel, 80 MACs + 2 fetches per full-res texel",
+      "decision": "kept, current best (decision log 2026-11-05)",
+      "val_diff": -0.014967276652654009,
+      "delta": "coma",
+      "val_diff_delta": -68.57223349930132,
       "criterion": "kept"
     }
   ],

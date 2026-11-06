@@ -83,6 +83,60 @@ def level_mlp(module):
     return net
 
 
+class SpikeLayout(NamedTuple):
+    """The spike section of the parameter buffer (glare.slang), after the level networks."""
+    net: LevelMLP           # SpikeMLP's shape
+    rays: int
+    passes: int
+    taps: int               # per pass
+    profile_count: int      # the streaks' logits, after SpikeMLP
+
+    @property
+    def param_count(self):
+        return self.net.param_count + self.profile_count
+
+
+@functools.cache
+def spike_layout(module):
+    """SpikeMLP's shape and the streaks' sizes, read from train_glare.slang as level_mlp()."""
+    v, s = module.spike_mlp_sizes(), module.spike_sizes()
+    net = LevelMLP(int(v.x), int(v.y), int(v.z), int(v.w))
+    assert net.param_count == (net.inputs * net.hidden + net.hidden) + (
+        net.hidden * net.outputs + net.outputs), f"PARAM_COUNT isn't mlp.slang's layout: {net}"
+    lay = SpikeLayout(net, int(s.x), int(s.y), int(s.z), int(s.w))
+    assert lay.profile_count == 2 * lay.passes * lay.taps, lay
+    return lay
+
+
+SPIKE_SOURCES = ("mip0", "input")   # the image a model's rays are streaked from (2026-11-05)
+
+
+def engine_layout(module, levels, spikes, source=None):
+    """The layout file the engines read next to a weight file (ParityHarness: glare_params.json):
+    the network shapes from glare.slang, the level count, and, with the spike term, its sizes and
+    which image its rays are streaked from (source, one of SPIKE_SOURCES). Written by
+    train_points.py next to every export, and by unity_parity.py export for older weights."""
+    assert (source in SPIKE_SOURCES) == spikes, (spikes, source)
+    net, lay = level_mlp(module), spike_layout(module)
+    return {"inputs": net.inputs, "hidden": net.hidden, "outputs": net.outputs,
+            "paramCount": net.param_count, "levels": levels,
+            "spikeParamCount": lay.net.param_count if spikes else 0,
+            "profileCount": lay.profile_count if spikes else 0,
+            "rays": lay.rays if spikes else 0, "passes": lay.passes if spikes else 0,
+            "spikeSource": source or "",
+            "source": "slang/glare.slang LevelMLP and SpikeMLP"}
+
+
+def has_spikes(module, n_params, n_levels):
+    """Whether a parameter buffer of n_params floats holds the spike section after its n_levels
+    level networks (and that it holds nothing else)."""
+    levels = n_levels * level_mlp(module).param_count
+    spikes = levels + spike_layout(module).param_count
+    assert n_params in (levels, spikes), (
+        f"{n_params} parameters: neither {n_levels} levels ({levels}) nor levels + spikes ({spikes})")
+    return n_params == spikes
+
+
 def init_params(gen, net):
     """One LevelMLP's parameters, in mlp.slang's layout. Hidden layer: He init, so the ReLU
     features start well spread. Output layer: small weights and bias 0, so every level starts

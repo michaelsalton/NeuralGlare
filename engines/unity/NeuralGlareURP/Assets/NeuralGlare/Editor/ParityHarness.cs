@@ -4,6 +4,10 @@
 // one level more than the pyramid (Phase 2) also run the full-resolution level (_unity_full).
 // The per-level parameter count comes from glare_params.json, which unity_parity.py export writes
 // from glare.slang's LevelMLP, so it can't drift from the network the HLSL was compiled from.
+// Weights with the spike section (spikeParamCount > 0 in the layout; decision log 2026-11-04)
+// also run the spike term after the full-resolution level: every ray's streak passes on mip 0,
+// summed per family, then SpikeComposite (_unity_even, _unity_odd, _unity_spikes). The rays are
+// streaked from mip 0 or from the input frame, as the layout's spikeSource says.
 using System;
 using System.IO;
 using Unity.Collections;
@@ -20,7 +24,17 @@ static class ParityHarness
 
     [Serializable] class Frame { public string name; public int width; public int height; }
     [Serializable] class Manifest { public Frame[] frames; }
-    [Serializable] class Layout { public int inputs, hidden, outputs, paramCount, levels; }
+    [Serializable] class Layout
+    {
+        public int inputs, hidden, outputs, paramCount, levels;
+        public int spikeParamCount, profileCount, rays, passes;     // 0 without the spike term
+        public string spikeSource;                                  // "mip0" or "input"
+        public int SpikeFloats => spikeParamCount > 0 ? spikeParamCount + profileCount : 0;
+    }
+    class Shaders
+    {
+        public ComputeShader prefilter, blurH, blurV, upsample, streak, streakAccumulate, spikeComposite;
+    }
     [Serializable] class RunInfo
     {
         public string unityVersion, graphicsDeviceType, graphicsDeviceName, graphicsDeviceVersion;
@@ -35,10 +49,16 @@ static class ParityHarness
     {
         var manifest = JsonUtility.FromJson<Manifest>(
             File.ReadAllText(Path.Combine(ParityDir, "frames.json")));
-        ComputeShader prefilter = LoadShader("GlarePrefilter");
-        ComputeShader blurH = LoadShader("GlareBlurH");
-        ComputeShader blurV = LoadShader("GlareBlurV");
-        ComputeShader upsample = LoadShader("GlareUpsample");
+        var shaders = new Shaders
+        {
+            prefilter = LoadShader("GlarePrefilter"),
+            blurH = LoadShader("GlareBlurH"),
+            blurV = LoadShader("GlareBlurV"),
+            upsample = LoadShader("GlareUpsample"),
+            streak = LoadShader("GlareStreak"),
+            streakAccumulate = LoadShader("GlareStreakAccumulate"),
+            spikeComposite = LoadShader("GlareSpikeComposite"),
+        };
 
         Layout layout = LoadLayout();
         float[] weights = LoadWeights(layout);
@@ -46,7 +66,7 @@ static class ParityHarness
         paramBuffer.SetData(weights);
 
         foreach (Frame frame in manifest.frames)
-            RunFrame(frame, prefilter, blurH, blurV, upsample, paramBuffer, layout);
+            RunFrame(frame, shaders, paramBuffer, layout);
 
         var info = new RunInfo
         {
@@ -59,10 +79,10 @@ static class ParityHarness
         Debug.Log($"Parity: {manifest.frames.Length} frames on {info.graphicsDeviceVersion} -> {ParityDir}");
     }
 
-    static void RunFrame(Frame frame, ComputeShader prefilter, ComputeShader blurH,
-                         ComputeShader blurV, ComputeShader upsample, ComputeBuffer paramBuffer,
-                         Layout layout)
+    static void RunFrame(Frame frame, Shaders shaders, ComputeBuffer paramBuffer, Layout layout)
     {
+        ComputeShader prefilter = shaders.prefilter, blurH = shaders.blurH, blurV = shaders.blurV,
+                      upsample = shaders.upsample;
         int levels = layout.levels;
         var input = new Texture2D(frame.width, frame.height, TextureFormat.RGBAFloat,
                                   mipChain: false, linear: true);
@@ -77,10 +97,14 @@ static class ParityHarness
         bool fullLevel = levels == n + 1;
         if (levels != n && !fullLevel)
             throw new InvalidDataException($"{frame.name}: {n} upsample levels, weights have {levels}");
+        if (layout.spikeParamCount > 0 && !fullLevel)
+            throw new InvalidDataException($"{frame.name}: spike weights without the full-resolution level");
 
         var mips = new RenderTexture[n + 1];
         var ups = new RenderTexture[n];        // ups[n] is mips[n]
         RenderTexture full = null;
+        RenderTexture[] families = null;   // even, odd
+        RenderTexture spikes = null;
         try
         {
             // Downsample: mip 0 = prefilter, mip i = BlurV(BlurH(mip i-1)) at half the size
@@ -114,20 +138,93 @@ static class ParityHarness
                 Dispatch(upsample, input, full);
             }
 
+            // Spike term: every ray streaked from mip 0, summed per family, mixed into the frame
+            if (layout.spikeParamCount > 0)
+            {
+                bool fromInput = layout.spikeSource == "input";
+                families = RunRays(shaders, paramBuffer, layout, fromInput ? input : mips[0],
+                                   fromInput ? new Vector2Int(frame.width, frame.height) : sizes[0]);
+                spikes = Target(new Vector2Int(frame.width, frame.height));
+                ComputeShader composite = shaders.spikeComposite;
+                composite.SetBuffer(0, "_GlareParams", paramBuffer);
+                composite.SetTexture(0, "_SpikeEven", families[0]);
+                composite.SetTexture(0, "_SpikeOdd", families[1]);
+                composite.SetInt("_ParamOffset", levels * layout.paramCount);
+                Dispatch(composite, full, spikes);
+            }
+
             for (int i = 0; i <= n; ++i)
                 WriteFloats(mips[i], Path.Combine(ParityDir, $"{frame.name}_unity_mip{i}.f32"));
             for (int k = 0; k < n; ++k)
                 WriteFloats(ups[k], Path.Combine(ParityDir, $"{frame.name}_unity_up{k}.f32"));
             if (fullLevel)
                 WriteFloats(full, Path.Combine(ParityDir, $"{frame.name}_unity_full.f32"));
+            if (spikes != null)
+            {
+                WriteFloats(families[0], Path.Combine(ParityDir, $"{frame.name}_unity_even.f32"));
+                WriteFloats(families[1], Path.Combine(ParityDir, $"{frame.name}_unity_odd.f32"));
+                WriteFloats(spikes, Path.Combine(ParityDir, $"{frame.name}_unity_spikes.f32"));
+            }
         }
         finally
         {
+            if (families != null) foreach (RenderTexture rt in families) if (rt != null) rt.Release();
+            if (spikes != null) spikes.Release();
             foreach (RenderTexture rt in mips) if (rt != null) rt.Release();
             foreach (RenderTexture rt in ups) if (rt != null) rt.Release();
             if (full != null) full.Release();
             UnityEngine.Object.DestroyImmediate(input);
         }
+    }
+
+    // Each ray: passes - 1 Streak passes from source (mip 0 or the input frame), then
+    // StreakAccumulate onto its family's sum (ray k is in family k % 2), as train_points.py
+    // spikes(). Returns the two sums.
+    static RenderTexture[] RunRays(Shaders shaders, ComputeBuffer paramBuffer, Layout layout,
+                                   Texture source, Vector2Int size)
+    {
+        int profile = layout.levels * layout.paramCount + layout.spikeParamCount;
+        var families = new[] { Cleared(size), Cleared(size) };
+        foreach (ComputeShader shader in new[] { shaders.streak, shaders.streakAccumulate })
+        {
+            shader.SetBuffer(0, "_GlareParams", paramBuffer);
+            shader.SetInt("_ParamOffset", profile);
+        }
+        for (int ray = 0; ray < layout.rays; ++ray)
+        {
+            Texture s = source;
+            for (int stage = 0; stage < layout.passes; ++stage)
+            {
+                bool last = stage == layout.passes - 1;
+                ComputeShader shader = last ? shaders.streakAccumulate : shaders.streak;
+                shader.SetInt("_Ray", ray);
+                shader.SetInt("_Stage", stage);
+                if (last)
+                    shader.SetTexture(0, "_Accum", families[ray % 2]);
+                RenderTexture next = Target(size);
+                Dispatch(shader, s, next);
+                if (s != source)
+                    ((RenderTexture)s).Release();
+                if (last)
+                {
+                    families[ray % 2].Release();
+                    families[ray % 2] = next;
+                }
+                else
+                    s = next;
+            }
+        }
+        return families;
+    }
+
+    static RenderTexture Cleared(Vector2Int size)
+    {
+        RenderTexture rt = Target(size);
+        RenderTexture previous = RenderTexture.active;
+        RenderTexture.active = rt;
+        GL.Clear(false, true, Color.clear);
+        RenderTexture.active = previous;
+        return rt;
     }
 
     // As mip_sizes() in pyramid_bloom.py (URP Bloom, downscale "half"). Integer log2, so
@@ -190,14 +287,18 @@ static class ParityHarness
         var layout = JsonUtility.FromJson<Layout>(asset.text);
         if (layout.paramCount <= 0 || layout.levels <= 0)
             throw new InvalidDataException($"{LayoutPath}: paramCount {layout.paramCount}, levels {layout.levels}");
+        if (layout.spikeParamCount > 0 && (layout.profileCount <= 0 || layout.rays <= 0 || layout.passes <= 0))
+            throw new InvalidDataException($"{LayoutPath}: spike section without profileCount / rays / passes");
+        if (layout.spikeParamCount > 0 && layout.spikeSource != "mip0" && layout.spikeSource != "input")
+            throw new InvalidDataException($"{LayoutPath}: spikeSource \"{layout.spikeSource}\", expected mip0 or input");
         return layout;
     }
 
     static float[] LoadWeights(Layout layout)
     {
         byte[] bytes = AssetDatabase.LoadAssetAtPath<TextAsset>(WeightsPath).bytes;
-        if (bytes.Length != layout.levels * layout.paramCount * sizeof(float))
-            throw new InvalidDataException($"{WeightsPath}: {bytes.Length} bytes, {LayoutPath} says {layout.levels} levels of {layout.paramCount} floats");
+        if (bytes.Length != (layout.levels * layout.paramCount + layout.SpikeFloats) * sizeof(float))
+            throw new InvalidDataException($"{WeightsPath}: {bytes.Length} bytes, {LayoutPath} says {layout.levels} levels of {layout.paramCount} floats + {layout.SpikeFloats} spike floats");
         var weights = new float[bytes.Length / sizeof(float)];
         Buffer.BlockCopy(bytes, 0, weights, 0, bytes.Length);
         return weights;

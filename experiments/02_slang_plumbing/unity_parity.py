@@ -11,7 +11,12 @@ so both sides run the same bytes. Default: the selected Phase 2 step 1 model. We
 level more than the pyramid (Phase 2) add the full-resolution level, whose "mip" is the input
 frame (train_points.py glare()). Next to the copy, export writes UNITY_LAYOUT: LevelMLP's shape as
 glare.slang declares it (level_mlp), so ParityHarness offsets the buffer by the network the HLSL
-was compiled from instead of a number typed into C#.
+was compiled from instead of a number typed into C#. Weights with the spike section (decision log
+2026-11-04) add its sizes to the layout (spike_layout), and Unity runs the spike term after the
+full-resolution level; its output (the frame the engine shows) then decides, and the two ray
+family sums are reported as diagnostics. The layout is the one train_points.py wrote next to the
+weight file (glare_params<tag>.json, with the image the rays are streaked from, spikeSource),
+checked against glare.slang; older weights without one get it built here (rays from mip 0).
 
 Images cross as raw little-endian float32 RGBA, row 0 = texel y = 0, no header: no EXR codec,
 no texture importer, no y flip. (Unity's textures are bottom-up in UV space, so an imported EXR
@@ -27,21 +32,25 @@ engine shows.
 import argparse
 import json
 import shutil
+import sys
 import tomllib
 from pathlib import Path
 
 import numpy as np
 import slangpy as spy
 import torch
-from train_levels import OUT_DIR, ROOT, VIEWS, environment, level_mlp
+from train_levels import OUT_DIR, ROOT, VIEWS, engine_layout, environment, level_mlp, spike_layout
 from train_pyramid import slang_mips
 
 from neuralglare.baselines.pyramid_bloom import URPBloomParams
 from neuralglare.io import read_hdr
 
+sys.path.insert(0, str(ROOT / "experiments" / "03_train_network"))
+from train_points import spikes  # the spike term's pass order, as training runs it
+
 PARITY_DIR = OUT_DIR / "unity_parity"
-WEIGHTS = (ROOT / "outputs" / "03_train_network" / "default" / "field_aligned_offsets" / "export" /
-           "glare_params_offsets_abs_fitted_lr0.0001.bytes")  # current best (2026-11-04); the
+WEIGHTS = (ROOT / "outputs" / "03_train_network" / "default" / "spikes_full" / "export" /
+           "glare_params_spikes_full_abs_fitted_lr0.0001.bytes")   # current best (2026-11-05); the
                                                               # 2-tap baseline no longer runs on glare.slang
 UNITY_WEIGHTS = (ROOT / "engines" / "unity" / "NeuralGlareURP" / "Assets" / "NeuralGlare" /
                  "Data" / "glare_params.bytes")              # ParityHarness.WeightsPath
@@ -58,10 +67,12 @@ def load_module():
 
 
 def levels_of(module, n_weights):
-    """How many LevelMLP networks a weight file of n_weights floats holds."""
-    count = level_mlp(module).param_count
-    assert n_weights % count == 0, f"{n_weights} weights: not whole levels of {count}"
-    return n_weights // count
+    """(LevelMLP networks, has the spike section) of a weight file of n_weights floats."""
+    count, extra = level_mlp(module).param_count, spike_layout(module).param_count
+    fits = [spikes for spikes in (False, True)
+            if n_weights > spikes * extra and (n_weights - spikes * extra) % count == 0]
+    assert len(fits) == 1, f"{n_weights} weights: not whole levels of {count} (+ {extra} spikes)"
+    return (n_weights - fits[0] * extra) // count, fits[0]
 
 
 def frames():
@@ -80,12 +91,13 @@ def read_rgba(path, h, w):
     return data.reshape(h, w, 4)[..., :3]
 
 
-def python_pyramid(module, img, params):
-    """Every mip and every upsample level (ups[n] = mips[n]), as numpy arrays, and the
-    full-resolution level's output if the weights have one (None otherwise)."""
+def python_pyramid(module, img, params, source="mip0"):
+    """Every mip and every upsample level (ups[n] = mips[n]), as numpy arrays, the
+    full-resolution level's output if the weights have one (None otherwise), and the spike term's
+    {"even", "odd", "spikes"} if they have it (empty otherwise)."""
     mips = slang_mips(module, img, P)
     n = len(mips) - 1
-    levels = levels_of(module, params.numel())
+    levels, has_spikes = levels_of(module, params.numel())
     assert levels in (n, n + 1), f"{levels} levels of weights, the pyramid has {n} (+ 1)"
 
     def level(mip, low, k):
@@ -98,11 +110,19 @@ def python_pyramid(module, img, params):
     ups[-1] = mips[-1]
     for k in reversed(range(n)):
         ups[k] = level(mips[k], ups[k + 1], k)
-    full = None
+    full, spike_levels = None, {}
     if levels == n + 1:
         src = torch.from_numpy(np.ascontiguousarray(img, np.float32)).cuda()
-        full = level(src, ups[0], n).cpu().numpy()
-    return [m.cpu().numpy() for m in mips], [u.cpu().numpy() for u in ups], full
+        full = level(src, ups[0], n)
+        if has_spikes:
+            rays_from = {"mip0": mips[0], "input": src}[source]
+            out, (even, odd) = spikes(module, rays_from, full, params,
+                                      levels * level_mlp(module).param_count, families=True)
+            spike_levels = {"even": even.cpu().numpy(), "odd": odd.cpu().numpy(),
+                            "spikes": out.cpu().numpy()}
+        full = full.cpu().numpy()
+    assert not has_spikes or spike_levels, "spike weights without the full-resolution level"
+    return [m.cpu().numpy() for m in mips], [u.cpu().numpy() for u in ups], full, spike_levels
 
 
 def stats(unity, python):
@@ -117,13 +137,17 @@ def stats(unity, python):
 def export(weights):
     PARITY_DIR.mkdir(parents=True, exist_ok=True)
     _, module = load_module()
-    net = level_mlp(module)
-    levels = levels_of(module, Path(weights).stat().st_size // 4)
+    net, lay = level_mlp(module), spike_layout(module)
+    levels, has_spikes = levels_of(module, Path(weights).stat().st_size // 4)
+    sidecar = Path(weights).with_suffix(".json")
+    if sidecar.exists():                    # written by train_points.py; must match glare.slang
+        layout = json.loads(sidecar.read_text())
+        assert layout == engine_layout(module, levels, has_spikes, layout["spikeSource"] or None), (
+            f"{sidecar} doesn't match glare.slang and the weight file")
+    else:                                   # weights from before the layout file: rays from mip 0
+        layout = engine_layout(module, levels, has_spikes, "mip0" if has_spikes else None)
     shutil.copyfile(weights, UNITY_WEIGHTS)
-    UNITY_LAYOUT.write_text(json.dumps(
-        {"inputs": net.inputs, "hidden": net.hidden, "outputs": net.outputs,
-         "paramCount": net.param_count, "levels": levels,
-         "source": "slang/glare.slang LevelMLP, via unity_parity.py export"}, indent=2))
+    UNITY_LAYOUT.write_text(json.dumps(layout, indent=2))
     manifest = []
     for name in frames():
         img = read_hdr(str(ROOT / "data" / "inputs" / f"{name}.exr"))[..., :3]
@@ -133,7 +157,9 @@ def export(weights):
         {"frames": manifest, "weights": Path(weights).resolve().relative_to(ROOT).as_posix()},
         indent=2))
     print(f"wrote {len(manifest)} frames to {PARITY_DIR}; copied {weights} to {UNITY_WEIGHTS} "
-          f"({levels} levels of {net.param_count}) and its layout to {UNITY_LAYOUT.name}")
+          f"({levels} levels of {net.param_count}"
+          f"{f' + {lay.param_count} spike, rays from ' + layout['spikeSource'] if has_spikes else ''}"
+          f") and its layout to {UNITY_LAYOUT.name}")
 
 
 def compare(_weights=None):
@@ -150,7 +176,8 @@ def compare(_weights=None):
     with torch.no_grad():
         for name in frames():
             img = read_hdr(str(ROOT / "data" / "inputs" / f"{name}.exr"))[..., :3]
-            mips, ups, full = python_pyramid(module, img, params)
+            mips, ups, full, spike_levels = python_pyramid(module, img, params,
+                                                           layout.get("spikeSource") or "mip0")
             levels = {}
             for kind, arrays in (("mip", mips), ("up", ups[:-1])):
                 for k, ref in enumerate(arrays):
@@ -159,7 +186,10 @@ def compare(_weights=None):
             if full is not None:
                 got = read_rgba(PARITY_DIR / f"{name}_unity_full.f32", *full.shape[:2])
                 levels["full"] = stats(got, full)
-            decides = "full" if full is not None else "up0"
+            for key, ref in spike_levels.items():
+                got = read_rgba(PARITY_DIR / f"{name}_unity_{key}.f32", *ref.shape[:2])
+                levels[key] = stats(got, ref)
+            decides = "spikes" if spike_levels else "full" if full is not None else "up0"
             frame_pass = levels[decides]["max_bound_ratio"] <= 1.0
             passed &= frame_pass
             results[name] = {"pass": frame_pass, "decides": decides, "levels": levels}

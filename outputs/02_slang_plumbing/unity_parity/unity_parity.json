@@ -14,7 +14,7 @@
     "graphicsDeviceName": "NVIDIA GeForce RTX 2070",
     "graphicsDeviceVersion": "Direct3D 11.0 [level 11.1]"
   },
-  "weights": "outputs/03_train_network/default/field_aligned_offsets/export/glare_params_offsets_abs_fitted_lr0.0001.bytes",
+  "weights": "outputs/03_train_network/default/spikes/export/glare_params_spikes_abs_fitted_lr0.0001.bytes",
   "criteria": {
     "rtol": 0.0001,
     "atol_rel": 1e-07
@@ -23,7 +23,7 @@
   "frames": {
     "goegap_road_4k_center": {
       "pass": true,
-      "decides": "full",
+      "decides": "spikes",
       "levels": {
         "mip0": {
           "max_bound_ratio": 0.0,
@@ -80,7 +80,7 @@
           ]
         },
         "up0": {
-          "max_bound_ratio": 1.469120161345927e-05,
+          "max_bound_ratio": 1.4290138096839655e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -89,7 +89,7 @@
           ]
         },
         "up1": {
-          "max_bound_ratio": 2.162406781280879e-05,
+          "max_bound_ratio": 2.1672429284080863e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -98,7 +98,7 @@
           ]
         },
         "up2": {
-          "max_bound_ratio": 7.559680670965463e-05,
+          "max_bound_ratio": 3.931534229195677e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -107,7 +107,7 @@
           ]
         },
         "up3": {
-          "max_bound_ratio": 0.0001372792321490124,
+          "max_bound_ratio": 0.0001412473211530596,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -125,7 +125,34 @@
           ]
         },
         "full": {
-          "max_bound_ratio": 1.856425114965532e-05,
+          "max_bound_ratio": 1.857634197222069e-05,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "even": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "odd": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "spikes": {
+          "max_bound_ratio": 1.8591796106193215e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -137,7 +164,7 @@
     },
     "goegap_road_4k_mid": {
       "pass": true,
-      "decides": "full",
+      "decides": "spikes",
       "levels": {
         "mip0": {
           "max_bound_ratio": 0.0,
@@ -194,8 +221,8 @@
           ]
         },
         "up0": {
-          "max_bound_ratio": 0.0005017526564188302,
-          "max_rel_error_bright": 7.194855555781032e-08,
+          "max_bound_ratio": 0.0003626492398325354,
+          "max_rel_error_bright": 6.607357505572509e-08,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -203,7 +230,7 @@
           ]
         },
         "up1": {
-          "max_bound_ratio": 1.8533370166551322e-05,
+          "max_bound_ratio": 1.8573116904008202e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -212,7 +239,7 @@
           ]
         },
         "up2": {
-          "max_bound_ratio": 0.00012334933853708208,
+          "max_bound_ratio": 0.00012328480079304427,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -221,7 +248,7 @@
           ]
         },
         "up3": {
-          "max_bound_ratio": 6.104377098381519e-05,
+          "max_bound_ratio": 1.6418114682892337e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -239,7 +266,34 @@
           ]
         },
         "full": {
-          "max_bound_ratio": 0.00022718041145708412,
+          "max_bound_ratio": 0.00022713051293976605,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "even": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "odd": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "spikes": {
+          "max_bound_ratio": 0.00022779739811085165,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -251,7 +305,7 @@
     },
     "goegap_road_4k_corner": {
       "pass": true,
-      "decides": "full",
+      "decides": "spikes",
       "levels": {
         "mip0": {
           "max_bound_ratio": 0.0,
@@ -308,8 +362,8 @@
           ]
         },
         "up0": {
-          "max_bound_ratio": 0.00020570401102304459,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.00046250424929894507,
+          "max_rel_error_bright": 8.276597895928717e-08,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -317,7 +371,7 @@
           ]
         },
         "up1": {
-          "max_bound_ratio": 0.00015538650040980428,
+          "max_bound_ratio": 8.348462142748758e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -326,8 +380,8 @@
           ]
         },
         "up2": {
-          "max_bound_ratio": 0.0012854281812906265,
-          "max_rel_error_bright": 1.2878882671429892e-07,
+          "max_bound_ratio": 0.0011445501586422324,
+          "max_rel_error_bright": 1.1464990734566527e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -335,7 +389,7 @@
           ]
         },
         "up3": {
-          "max_bound_ratio": 3.738715895451605e-05,
+          "max_bound_ratio": 1.878197508631274e-05,
           "max_rel_error_bright": 0.0,
           "energy_ratio_minus_1": [
             0.0,
@@ -353,8 +407,35 @@
           ]
         },
         "full": {
-          "max_bound_ratio": 0.0016866736114025116,
-          "max_rel_error_bright": 2.1621880819111539e-07,
+          "max_bound_ratio": 0.001898392685689032,
+          "max_rel_error_bright": 2.1791065307752433e-07,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "even": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "odd": {
+          "max_bound_ratio": 0.0,
+          "max_rel_error_bright": 0.0,
+          "energy_ratio_minus_1": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "spikes": {
+          "max_bound_ratio": 0.0018932030070573092,
+          "max_rel_error_bright": 2.1514684078738355e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,

@@ -13,7 +13,7 @@ EXPECTED_VERSION="2026.12"  # the compiler slangpy 0.43.1 is built against (deci
 SOURCE="$ROOT/slang/engine_glare.slang"
 UNITY_OUT="$ROOT/engines/unity/NeuralGlareURP/Assets/NeuralGlare/Generated"
 UNREAL_OUT="$ROOT/engines/unreal/NeuralGlarePlugin/Generated"
-KERNELS=(Prefilter BlurH BlurV Upsample)
+KERNELS=(Prefilter BlurH BlurV Upsample Streak StreakAccumulate SpikeComposite)
 
 version="$("$SLANGC" -v 2>&1 | tr -d '\r')"
 if [[ "$version" != "$EXPECTED_VERSION" ]]; then

@@ -14,7 +14,7 @@ Texture2D<float4 > _Source : register(t0);
 
 Texture2D<float4 > _SourceLow : register(t1);
 
-StructuredBuffer<float > _GlareParams : register(t2);
+StructuredBuffer<float > _GlareParams : register(t5);
 
 float BufferParams_get_0(StructuredBuffer<float > this_buf_0, int index_0)
 {
@@ -116,23 +116,31 @@ void MLP_eval_0(StructuredBuffer<float > params_buf_2, int offset_2, float  x_3[
     return;
 }
 
-void weights_0(float2 uv_0, StructuredBuffer<float > params_buf_3, int offset_3, out float  _S27[int(4)])
+void softmax_0(float  z_0[int(4)], out float  _S27[int(4)])
+{
+    float _S28 = max(max(max(z_0[int(0)], z_0[int(1)]), z_0[int(2)]), z_0[int(3)]);
+    float  w_0[int(4)];
+    float _S29 = exp(z_0[int(0)] - _S28);
+    float _S30 = exp(z_0[int(1)] - _S28);
+    float _S31 = exp(z_0[int(2)] - _S28);
+    float _S32 = exp(z_0[int(3)] - _S28);
+    float sum_0 = _S29 + _S30 + _S31 + _S32;
+    w_0[int(0)] = _S29 / sum_0;
+    w_0[int(1)] = _S30 / sum_0;
+    w_0[int(2)] = _S31 / sum_0;
+    w_0[int(3)] = _S32 / sum_0;
+    _S27 = w_0;
+    return;
+}
+
+void weights_0(float2 uv_0, StructuredBuffer<float > params_buf_3, int offset_3, out float  _S33[int(4)])
 {
     float  x_4[int(2)] = { uv_0.x, uv_0.y };
-    float  _S28[int(4)];
-    MLP_eval_0(params_buf_3, offset_3, x_4, _S28);
-    float _S29 = max(max(_S28[int(0)], _S28[int(1)]), max(_S28[int(2)], _S28[int(3)]));
-    float  w_0[int(4)];
-    float _S30 = exp(_S28[int(0)] - _S29);
-    float _S31 = exp(_S28[int(1)] - _S29);
-    float _S32 = exp(_S28[int(2)] - _S29);
-    float _S33 = exp(_S28[int(3)] - _S29);
-    float sum_0 = _S30 + _S31 + _S32 + _S33;
-    w_0[int(0)] = _S30 / sum_0;
-    w_0[int(1)] = _S31 / sum_0;
-    w_0[int(2)] = _S32 / sum_0;
-    w_0[int(3)] = _S33 / sum_0;
-    _S27 = w_0;
+    float  _S34[int(4)];
+    MLP_eval_0(params_buf_3, offset_3, x_4, _S34);
+    float  _S35[int(4)];
+    softmax_0(_S34, _S35);
+    _S33 = _S35;
     return;
 }
 
@@ -151,21 +159,21 @@ float3 TextureImage_load_0(Texture2D<float4 > this_tex_1, int2 texel_0)
 
 float3 sample_bilinear_0(Texture2D<float4 > img_tex_0, float2 uv_1)
 {
-    int2 _S34 = TextureImage_size_0(img_tex_0);
-    float2 p_0 = uv_1 * float2(_S34) - 0.5f;
+    int2 _S36 = TextureImage_size_0(img_tex_0);
+    float2 p_0 = uv_1 * float2(_S36) - 0.5f;
     float2 p0_0 = floor(p_0);
     float2 f_0 = p_0 - p0_0;
-    int2 _S35 = int2(p0_0);
-    int2 _S36 = (int2)int(0);
-    int2 _S37 = _S34 - int(1);
-    int2 i0_0 = clamp(_S35, _S36, _S37);
-    int2 i1_0 = clamp(_S35 + int(1), _S36, _S37);
-    int _S38 = i0_0.x;
-    int _S39 = i0_0.y;
-    int _S40 = i1_0.x;
-    float3 _S41 = (float3)f_0.x;
-    int _S42 = i1_0.y;
-    return lerp(lerp(TextureImage_load_0(img_tex_0, int2(_S38, _S39)), TextureImage_load_0(img_tex_0, int2(_S40, _S39)), _S41), lerp(TextureImage_load_0(img_tex_0, int2(_S38, _S42)), TextureImage_load_0(img_tex_0, int2(_S40, _S42)), _S41), (float3)f_0.y);
+    int2 _S37 = int2(p0_0);
+    int2 _S38 = (int2)int(0);
+    int2 _S39 = _S36 - int(1);
+    int2 i0_0 = clamp(_S37, _S38, _S39);
+    int2 i1_0 = clamp(_S37 + int(1), _S38, _S39);
+    int _S40 = i0_0.x;
+    int _S41 = i0_0.y;
+    int _S42 = i1_0.x;
+    float3 _S43 = (float3)f_0.x;
+    int _S44 = i1_0.y;
+    return lerp(lerp(TextureImage_load_0(img_tex_0, int2(_S40, _S41)), TextureImage_load_0(img_tex_0, int2(_S42, _S41)), _S43), lerp(TextureImage_load_0(img_tex_0, int2(_S40, _S44)), TextureImage_load_0(img_tex_0, int2(_S42, _S44)), _S43), (float3)f_0.y);
 }
 
 float2 texel_uv_0(int2 texel_1, int2 size_0)
@@ -175,17 +183,17 @@ float2 texel_uv_0(int2 texel_1, int2 size_0)
 
 float2 field_offset_0(float2 uv_2, int2 size_1)
 {
-    float2 _S43 = float2(size_1);
-    return (uv_2 - 0.5f) * _S43 / length(0.5f * _S43);
+    float2 _S45 = float2(size_1);
+    return (uv_2 - 0.5f) * _S45 / length(0.5f * _S45);
 }
 
 float3 upsample_0(int2 texel_2, int2 out_size_0, Texture2D<float4 > mip_tex_0, Texture2D<float4 > low_tex_0, StructuredBuffer<float > params_buf_4, int offset_4)
 {
     float2 uv_3 = texel_uv_0(texel_2, out_size_0);
-    float  _S44[int(4)];
-    weights_0(uv_3, params_buf_4, offset_4, _S44);
+    float  _S46[int(4)];
+    weights_0(uv_3, params_buf_4, offset_4, _S46);
     float2 o_0 = field_offset_0(uv_3, out_size_0) / float2(out_size_0);
-    return _S44[int(0)] * TextureImage_load_0(mip_tex_0, texel_2) + _S44[int(1)] * sample_bilinear_0(mip_tex_0, uv_3 + o_0) + _S44[int(2)] * sample_bilinear_0(mip_tex_0, uv_3 - o_0) + _S44[int(3)] * sample_bilinear_0(low_tex_0, uv_3);
+    return _S46[int(0)] * TextureImage_load_0(mip_tex_0, texel_2) + _S46[int(1)] * sample_bilinear_0(mip_tex_0, uv_3 + o_0) + _S46[int(2)] * sample_bilinear_0(mip_tex_0, uv_3 - o_0) + _S46[int(3)] * sample_bilinear_0(low_tex_0, uv_3);
 }
 
 int2 target_size_0()
@@ -200,14 +208,14 @@ int2 target_size_0()
 void Upsample(uint3 id_0 : SV_DispatchThreadID)
 {
     int2 size_2 = target_size_0();
-    int2 _S45 = int2(id_0.xy);
-    if(any(_S45 >= size_2))
+    int2 _S47 = int2(id_0.xy);
+    if(any(_S47 >= size_2))
     {
         return;
     }
-    uint2 _S46 = uint2(_S45);
-    int _S47 = ((_ParamOffset));
-    _Target[_S46] = float4(upsample_0(_S45, size_2, _Source, _SourceLow, _GlareParams, _S47), 1.0f);
+    uint2 _S48 = uint2(_S47);
+    int _S49 = ((_ParamOffset));
+    _Target[_S48] = float4(upsample_0(_S47, size_2, _Source, _SourceLow, _GlareParams, _S49), 1.0f);
     return;
 }
 

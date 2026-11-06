@@ -34,6 +34,30 @@ public float3 sample_bilinear<I : IImage>(I img, no_diff float2 uv)
     return lerp(top, bot, f.y);
 }
 
+// A texel, or 0 outside the image (a clamp-to-border sampler with a black border).
+[Differentiable]
+public float3 load_zero<I : IImage>(I img, no_diff int2 texel)
+{
+    int2 size = img.size();
+    if (any(texel < int2(0)) || any(texel >= size))
+        return float3(0.0);
+    return img.load(texel);
+}
+
+// Bilinear fetch at continuous texel coordinates p (integers are texel centres), 0 outside the
+// image. For long gathers (the spike streaks), where clamp-to-edge would repeat the border texel
+// once per tap and add light that isn't there.
+[Differentiable]
+public float3 sample_bilinear_zero<I : IImage>(I img, no_diff float2 p)
+{
+    float2 p0 = no_diff floor(p); // geometry only, as sample_bilinear
+    float2 f = p - p0;
+    int2 i0 = int2(p0);
+    float3 top = lerp(load_zero(img, i0), load_zero(img, i0 + int2(1, 0)), f.x);
+    float3 bot = lerp(load_zero(img, i0 + int2(0, 1)), load_zero(img, i0 + int2(1, 1)), f.x);
+    return lerp(top, bot, f.y);
+}
+
 // Mip 0: one bilinear fetch into the half-resolution target (URP FragPrefilter, no threshold).
 public float3 prefilter<I : IImage>(int2 texel, int2 out_size, I src)
 {

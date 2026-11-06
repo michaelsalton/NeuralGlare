@@ -36,6 +36,9 @@ struct BufferParams : IParams
 
 Texture2D<float4> _Source;          // this pass's input (upsample: this level's mip)
 Texture2D<float4> _SourceLow;       // upsample only: the output of the level below
+Texture2D<float4> _Accum;           // StreakAccumulate only: the ray family's sum so far
+Texture2D<float4> _SpikeEven;       // SpikeComposite only: the even family's rays
+Texture2D<float4> _SpikeOdd;        // SpikeComposite only: the odd family's rays
 StructuredBuffer<float> _GlareParams;
 RWTexture2D<float4> _Target;
 
@@ -48,6 +51,25 @@ int param_offset()
     __target_switch
     {
     case hlsl: __intrinsic_asm "(_ParamOffset)";
+    }
+}
+
+// Streak passes only: which ray (0..RAYS-1) and which pass (0..PASSES-1). Declared by the
+// wrapper, as _ParamOffset (which holds the profile logits' start for the streak kernels and
+// SpikeMLP's for SpikeComposite).
+int ray_index()
+{
+    __target_switch
+    {
+    case hlsl: __intrinsic_asm "(_Ray)";
+    }
+}
+
+int stage_index()
+{
+    __target_switch
+    {
+    case hlsl: __intrinsic_asm "(_Stage)";
     }
 }
 
@@ -107,4 +129,50 @@ void Upsample(uint3 id : SV_DispatchThreadID)
     TextureImage low = { _SourceLow };
     BufferParams params = { _GlareParams };
     _Target[texel] = float4(upsample(texel, size, mip, low, params, param_offset()), 1.0);
+}
+
+// One pass of one spike ray at mip 0's resolution: _Source = S_stage, _Target = S_stage+1.
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void Streak(uint3 id : SV_DispatchThreadID)
+{
+    int2 size = target_size();
+    int2 texel = int2(id.xy);
+    if (any(texel >= size))
+        return;
+    TextureImage src = { _Source };
+    BufferParams params = { _GlareParams };
+    _Target[texel] = float4(streak(texel, src, params, param_offset(), ray_index(), stage_index()), 1.0);
+}
+
+// A ray's last pass added to its family's sum: _Target = _Accum + streak(_Source).
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void StreakAccumulate(uint3 id : SV_DispatchThreadID)
+{
+    int2 size = target_size();
+    int2 texel = int2(id.xy);
+    if (any(texel >= size))
+        return;
+    TextureImage src = { _Source };
+    TextureImage acc = { _Accum };
+    BufferParams params = { _GlareParams };
+    _Target[texel] = float4(streak_accumulate(texel, src, acc, params, param_offset(), ray_index(),
+                                              stage_index()), 1.0);
+}
+
+// The final frame: _Source = the full-resolution level's output, mixed with the two families.
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void SpikeComposite(uint3 id : SV_DispatchThreadID)
+{
+    int2 size = target_size();
+    int2 texel = int2(id.xy);
+    if (any(texel >= size))
+        return;
+    TextureImage base = { _Source };
+    TextureImage even = { _SpikeEven };
+    TextureImage odd = { _SpikeOdd };
+    BufferParams params = { _GlareParams };
+    _Target[texel] = float4(spike_composite(texel, size, base, even, odd, params, param_offset()), 1.0);
 }
