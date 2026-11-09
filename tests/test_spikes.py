@@ -57,7 +57,7 @@ def test_sizes(module):
     assert taps ** passes == 64, "the passes' base-taps digits must cover 0..63 texels"
     v = module.spike_mlp_sizes()
     i, h, o, n = int(v.x), int(v.y), int(v.z), int(v.w)
-    assert o == 3 and n == (i * h + h) + (h * o + o)
+    assert o == 9 and n == (i * h + h) + (h * o + o)     # 3 mix weights x R, G, B
 
 
 @needs_cuda
@@ -126,10 +126,11 @@ def test_accumulate_adds_to_the_running_sum(module):
 
 
 def spike_params(module, bias, profile=0.0):
-    """SpikeMLP with every weight 0 and output biases `bias`, then the profile logits."""
+    """SpikeMLP with every weight 0 and output biases `bias` (3 for every channel, or 9,
+    channel-major), then the profile logits."""
     v = module.spike_mlp_sizes()
     p = torch.zeros(int(v.w) + sizes(module)[3])
-    p[int(v.w) - 3:int(v.w)] = torch.tensor(bias)
+    p[int(v.w) - 9:int(v.w)] = torch.tensor(bias * 3 if len(bias) == 3 else bias)
     p[int(v.w):] = profile
     return p.cuda().requires_grad_(True)
 
@@ -152,6 +153,27 @@ def test_composite_mixes_with_softmax_weights(module):
     o = up(odd.permute(2, 0, 1)[None], scale_factor=2, mode="bilinear", align_corners=False)
     want = w[0] * base + (w[1] * e[0] + w[2] * o[0]).permute(1, 2, 0) / 7
     torch.testing.assert_close(got.detach(), want.float(), rtol=1e-5, atol=1e-6)
+
+
+@needs_cuda
+def test_composite_mixes_each_channel_with_its_own_weights(module):
+    """Channel-major biases, a different mix per channel (decision log 2026-11-09): channel c of
+    the output is w_c[0] * base + (w_c[1] * even + w_c[2] * odd) / 7, w_c = softmax(b_c)."""
+    base = torch.rand(2 * H, 2 * W, 3, device="cuda")
+    even = torch.rand(H, W, 3, device="cuda")
+    odd = torch.rand(H, W, 3, device="cuda")
+    b = np.array([[0.5, -1.0, 0.25], [2.0, 0.0, -3.0], [-1.0, 1.5, 0.5]])     # R, G, B
+    w = np.exp(b) / np.exp(b).sum(1, keepdims=True)
+    got = module.spike_pass(texel=spy.grid((2 * H, 2 * W)), out_size=spy.int2(2 * W, 2 * H),
+                            base=base, even=even, odd=odd,
+                            params=spike_params(module, b.ravel().tolist()), offset=0)
+    up = torch.nn.functional.interpolate
+    e = up(even.permute(2, 0, 1)[None], scale_factor=2, mode="bilinear", align_corners=False)
+    o = up(odd.permute(2, 0, 1)[None], scale_factor=2, mode="bilinear", align_corners=False)
+    e, o = e[0].permute(1, 2, 0), o[0].permute(1, 2, 0)
+    for c in range(3):         # atol 1e-5: float32 bilinear coordinates, 1.6e-6 seen on 1 texel
+        want = w[c, 0] * base[..., c] + (w[c, 1] * e[..., c] + w[c, 2] * o[..., c]) / 7
+        torch.testing.assert_close(got.detach()[..., c], want.float(), rtol=1e-5, atol=1e-5)
 
 
 @needs_cuda

@@ -61,6 +61,10 @@ STUDY_RUNS = {
         ("spikes", "_spikes_abs_fitted_lr0.0001", "Spikes (mip 0)"),
         ("spikes_full", "_spikes_full_abs_fitted_lr0.0001", "Spikes (full resolution)"),
     ],
+    "per_channel": [
+        ("spikes_full", "_spikes_full_abs_fitted_lr0.0001", "Spikes (full resolution)"),
+        ("per_channel", "_per_channel_abs_fitted_lr0.0001", "Per-channel weights"),
+    ],
 }
 BASELINES = {"fft_centre": "Phase 0: FFT, centre PSF", "pyramid": "Phase 0: pyramid (fitted)"}
 EXPOSURE = 0.05                     # 1_look: Reinhard exposure, as the Step 1 views

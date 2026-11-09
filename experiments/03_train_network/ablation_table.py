@@ -29,8 +29,10 @@ from neuralglare.paths import RUNS, run_dir
 BASELINE = ("baseline", "_lerp_abs_fitted_lr0.0001")
 SEEDS = ("", "_seed1", "_seed2")    # the seed runs that set a δ
 # The runs each δ is measured on (decision log 2026-11-03; re-measured on the coma model when the
-# spike term took the parameter count past 2x the baseline's, 2026-11-04)
-NOISE = {"baseline": BASELINE, "coma": ("coma", "_offsets_abs_fitted_lr0.0001")}
+# spike term took the parameter count past 2x the baseline's, 2026-11-04, and on spikes_full when
+# per-channel weights took it past 2x the coma model's, 2026-11-09)
+NOISE = {"baseline": BASELINE, "coma": ("coma", "_offsets_abs_fitted_lr0.0001"),
+         "spikes_full": ("spikes_full", "_spikes_full_abs_fitted_lr0.0001")}
 BINS = ("centre", "mid", "edge")
 
 # One row per change, in the order they were run. against: the study it was compared with (the
@@ -61,6 +63,12 @@ ABLATIONS = [
      "extra": " + 2 bilinear taps, softmax, length(); spikes: 168 fetches per full-res texel, "
               "80 MACs + 2 fetches per full-res texel",
      "decision": "kept, current best (decision log 2026-11-05)"},
+    {"label": "Per-channel weights: one softmax per colour channel", "study": "per_channel",
+     "tag": "_per_channel_abs_fitted_lr0.0001", "against": "spikes_full", "delta": "spikes_full",
+     "mlp": (2, 16, 12),
+     "extra": " + 2 bilinear taps, 3 softmaxes, length(); spikes: 168 fetches per full-res texel, "
+              "176 MACs + 2 fetches per full-res texel",
+     "decision": "pending (decision log 2026-11-09)"},
 ]
 
 

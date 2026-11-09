@@ -4,7 +4,8 @@
 //
 // Four taps: this level's mip at the texel, the mip at +o and -o along the direction from the
 // frame centre (field-aligned offsets, for coma; decision log 2026-11-04), and the bilinearly
-// upsampled result of the level below, mixed by w = softmax(MLP(uv)). The weights are positive
+// upsampled result of the level below, mixed by w = softmax(MLP(uv)), one softmax per colour
+// channel (per-channel weights, decision log 2026-11-09). Each channel's weights are positive
 // and sum to 1, so no output is negative and a flat image stays flat. A point's light is
 // conserved only up to the offset field's Jacobian: o grows with distance from the centre, so
 // the +o / -o taps read the mip magnified / shrunk by 1 +- 1/R (R = the level's half-diagonal in
@@ -17,8 +18,31 @@ module glare;
 import pyramid;
 import mlp;
 
-public typealias LevelMLP = MLP<2, 16, 4>;
-public static const int TAPS = LevelMLP.OUT_SIZE;   // mip(x), mip(x + o), mip(x - o), up(low)(x)
+public static const int CHANNELS = 3;
+public typealias LevelMLP = MLP<2, 16, 12>;                   // TAPS x CHANNELS, channel-major
+public static const int TAPS = LevelMLP.OUT_SIZE / CHANNELS;  // mip(x), mip(x + o), mip(x - o), up(low)(x)
+
+// One softmax per colour channel: z holds N logits per channel, channel-major (R's N, then G's,
+// then B's; M = N * CHANNELS). Each channel's weights are positive and sum to 1, so each channel
+// keeps its own light, and a white source keeps its total colour.
+[Differentiable]
+public float3[N] softmax_rgb<let N : int, let M : int>(float z[M])
+{
+    float3 w[N];
+    [ForceUnroll]
+    for (int c = 0; c < CHANNELS; ++c)
+    {
+        float zc[N];
+        [ForceUnroll]
+        for (int i = 0; i < N; ++i)
+            zc[i] = z[c * N + i];
+        float wc[N] = softmax<N>(zc);
+        [ForceUnroll]
+        for (int i = 0; i < N; ++i)
+            w[i][c] = wc[i];
+    }
+    return w;
+}
 
 // The radial tap offset H * d_hat, in texels of a target of this size: the vector from the
 // frame centre, scaled so the corners have length 1. It is zero at the centre, so the taps fade
@@ -29,15 +53,15 @@ public float2 field_offset(float2 uv, int2 size)
     return p / length(0.5 * float2(size));
 }
 
-// This level's tap weights at a screen position: softmax(MLP(uv)). Positive and summing to 1;
-// with two taps it is the old lerp, sigmoid(z1 - z0). The radial input MLP(H) was tried and
-// rejected (decision log 2026-11-04).
+// This level's tap weights at a screen position: softmax(MLP(uv)) per channel. Positive and
+// summing to 1 in each channel; with two taps it is the old lerp, sigmoid(z1 - z0). The radial
+// input MLP(H) was tried and rejected (decision log 2026-11-04).
 [Differentiable]
-public float[TAPS] weights<P : IParams>(no_diff float2 uv, P params, no_diff int offset)
+public float3[TAPS] weights<P : IParams>(no_diff float2 uv, P params, no_diff int offset)
 {
     float x[2] = { uv.x, uv.y };
-    float z[TAPS] = LevelMLP.eval(params, offset, x);
-    return softmax<TAPS>(z);
+    float z[LevelMLP.OUT_SIZE] = LevelMLP.eval(params, offset, x);
+    return softmax_rgb<TAPS, LevelMLP.OUT_SIZE>(z);
 }
 
 [Differentiable]
@@ -46,7 +70,7 @@ public float3 upsample<I : IImage, J : IImage, P : IParams>(no_diff int2 texel, 
                                                             no_diff int offset)
 {
     float2 uv = no_diff texel_uv(texel, out_size);
-    float w[TAPS] = weights(uv, params, offset);
+    float3 w[TAPS] = weights(uv, params, offset);                     // per channel
     float2 o = no_diff field_offset(uv, out_size) / float2(out_size);   // texels -> uv
     float3 c = no_diff mip.load(texel);
     float3 a = sample_bilinear(mip, uv + o);
@@ -67,13 +91,16 @@ public float3 upsample<I : IImage, J : IImage, P : IParams>(no_diff int2 texel, 
 // distance 0..63 texels exactly once: a point gets a continuous ray, and the ray's profile is
 // the product of one weight per digit. c[f][p] = softmax of this family's logits for the pass:
 // positive and summing to 1, so each ray keeps its light. The logits are global (one profile per
-// family), not per pixel; SpikeMLP(uv) sets how much light goes to each family per pixel.
+// family, shared by the channels), not per pixel; SpikeMLP(uv) sets how much light goes to each
+// family per pixel and channel. Grey profiles suffice: the exact halo's tint is constant over
+// 6..64 px (decision log 2026-11-09).
 
 public static const int RAYS = 14;
 public static const int PASSES = 3;
 public static const int STREAK_TAPS = 4;
 public static const int PROFILE_COUNT = 2 * PASSES * STREAK_TAPS;  // logits, family-major
-public typealias SpikeMLP = MLP<2, 16, 3>;                         // pyramid, even rays, odd rays
+public static const int MIX = 3;                                   // pyramid, even rays, odd rays
+public typealias SpikeMLP = MLP<2, 16, 9>;                         // MIX x CHANNELS, channel-major
 
 // e_k = (cos, sin) of k * 360 / 14 in texel space (x right, y down), as literals so every
 // compiler gets the same values.
@@ -128,24 +155,24 @@ public float3 streak_accumulate<I : IImage, J : IImage, P : IParams>(no_diff int
 }
 
 // How the full-resolution output and the two families mix at a screen position:
-// softmax(SpikeMLP(uv)) over (pyramid, even rays, odd rays).
+// softmax(SpikeMLP(uv)) over (pyramid, even rays, odd rays), one per channel.
 [Differentiable]
-public float[3] spike_weights<P : IParams>(no_diff float2 uv, P params, no_diff int offset)
+public float3[MIX] spike_weights<P : IParams>(no_diff float2 uv, P params, no_diff int offset)
 {
     float x[2] = { uv.x, uv.y };
-    float z[3] = SpikeMLP.eval(params, offset, x);
-    return softmax<3>(z);
+    float z[SpikeMLP.OUT_SIZE] = SpikeMLP.eval(params, offset, x);
+    return softmax_rgb<MIX, SpikeMLP.OUT_SIZE>(z);
 }
 
 // The final frame: base is the full-resolution level's output, even / odd the sums of each
 // family's 7 rays at mip 0's resolution. Dividing by 7 makes each family's mean ray carry its
-// weight's share of the light, so the weights still sum to 1 and light is kept.
+// weight's share of the light, so the weights still sum to 1 in each channel and light is kept.
 [Differentiable]
 public float3 spike_composite<I : IImage, J : IImage, K : IImage, P : IParams>(
     no_diff int2 texel, no_diff int2 out_size, I base, J even, K odd, P params, no_diff int offset)
 {
     float2 uv = no_diff texel_uv(texel, out_size);
-    float w[3] = spike_weights(uv, params, offset);
+    float3 w[MIX] = spike_weights(uv, params, offset);
     float3 e = sample_bilinear(even, uv);
     float3 o = sample_bilinear(odd, uv);
     return w[0] * base.load(texel) + (w[1] * e + w[2] * o) * (1.0 / float(RAYS / 2));

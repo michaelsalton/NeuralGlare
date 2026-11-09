@@ -88,14 +88,15 @@ int4 level_mlp_sizes()
     return int4(LevelMLP.IN_SIZE, LevelMLP.HIDDEN_SIZE, LevelMLP.OUT_SIZE, LevelMLP.PARAM_COUNT);
 }
 
-// The tap weights at screen positions uv, in upsample()'s order: mip(x), mip(x + o), mip(x - o),
-// up(low)(x). size is unused (the weights see uv only); it stays so the Python callers don't change.
+// One channel's (0 R, 1 G, 2 B) tap weights at screen positions uv, in upsample()'s order:
+// mip(x), mip(x + o), mip(x - o), up(low)(x). size is unused (the weights see uv only); it stays
+// so the Python callers don't change.
 [Differentiable]
-float4 filter_weights(float2 uv, int2 size, DiffTensor<float, 1> params)
+float4 filter_weights(float2 uv, int2 size, DiffTensor<float, 1> params, int channel)
 {
     TensorParams p = { params };
-    float w[TAPS] = weights(uv, p, 0);
-    return float4(w[0], w[1], w[2], w[3]);
+    float3 w[TAPS] = weights(uv, p, 0);
+    return float4(w[0][channel], w[1][channel], w[2][channel], w[3][channel]);
 }
 
 
@@ -146,11 +147,11 @@ int4 spike_sizes()
     return int4(RAYS, PASSES, STREAK_TAPS, PROFILE_COUNT);
 }
 
-// The spike mix weights at screen positions uv: (pyramid, even rays, odd rays).
+// One channel's spike mix weights at screen positions uv: (pyramid, even rays, odd rays).
 [Differentiable]
-float3 spike_mix(float2 uv, DiffTensor<float, 1> params, int offset)
+float3 spike_mix(float2 uv, DiffTensor<float, 1> params, int offset, int channel)
 {
     TensorParams p = { params };
-    float w[3] = spike_weights(uv, p, offset);
-    return float3(w[0], w[1], w[2]);
+    float3 w[MIX] = spike_weights(uv, p, offset);
+    return float3(w[0][channel], w[1][channel], w[2][channel]);
 }

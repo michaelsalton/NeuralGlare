@@ -71,15 +71,18 @@ def urp_up0(mips, scatter):
     return up
 
 
-def exact_params(n_levels, scatter, count):
+def exact_params(n_levels, scatter, count, outputs=12):
     """Every weight and hidden bias 0, so the hidden layer outputs leaky_relu(0) = 0 and each
-    MLP outputs its output biases: softmax(0, -30, -30, logit(s)) = (1 - s, ~0, ~0, s), URP's
-    answer with the offset taps off."""
+    MLP outputs its output biases: softmax(0, -30, -30, logit(s)) = (1 - s, ~0, ~0, s) in every
+    channel, URP's answer with the offset taps off. scatter: one s for all channels, or one per
+    channel (R, G, B); the biases are channel-major, 4 per channel."""
+    s = np.broadcast_to(scatter, 3)
     params = torch.zeros(n_levels * count)
     for k in range(n_levels):
-        end = (k + 1) * count                       # output biases: mip, mip(+o), mip(-o), low
-        params[end - 3] = params[end - 2] = -30.0   # offset taps off: weight e^-30
-        params[end - 1] = float(np.log(scatter / (1 - scatter)))
+        for c in range(3):
+            end = (k + 1) * count - outputs + 4 * (c + 1)   # channel c: mip, mip(+o), mip(-o), low
+            params[end - 3] = params[end - 2] = -30.0       # offset taps off: weight e^-30
+            params[end - 1] = float(np.log(s[c] / (1 - s[c])))
     return params
 
 
@@ -105,6 +108,25 @@ def test_exact_weights_reproduce_urp(module, pyramid):
 
 
 @needs_cuda
+def test_level_mlp_outputs_four_taps_per_channel(module):
+    """Per-channel weights (decision log 2026-11-09): 4 taps x R, G, B, channel-major."""
+    assert int(module.level_mlp_sizes().z) == 12
+
+
+@needs_cuda
+def test_per_channel_blends_are_independent(module, pyramid):
+    """A different blend per channel: each output channel is URP's chain with its own scatter,
+    so no channel's weights leak into another's."""
+    mips, _ = pyramid
+    gpu = [torch.from_numpy(m).cuda() for m in mips]
+    s = (0.3, 0.6, 0.8)
+    params = exact_params(len(mips) - 1, s, param_count(module)).cuda().requires_grad_(True)
+    out = chain(module, gpu, params).detach().cpu().numpy()
+    for c in range(3):
+        np.testing.assert_allclose(out[..., c], urp_up0(mips, s[c])[..., c], rtol=1e-4)
+
+
+@needs_cuda
 def test_gradient_reaches_every_level(module, pyramid):
     mips, scatter = pyramid
     gpu = [torch.from_numpy(m).cuda() for m in mips]
@@ -121,7 +143,9 @@ def test_gradient_matches_finite_difference(module, pyramid):
     off by sigmoid's curvature, h^2/6 * |1 - 6s + 6s^2| relative (5e-4 at h = 0.1), plus float32
     round-off that grows as 1/h (up to 1.2e-3 at h = 0.01, deepest level: its gradient carries
     the factor s(1 - s)). h = 0.03 keeps both below 3e-4: checks the backward pass through every
-    low input, not just its sign."""
+    low input, not just its sign. The three channels' blend biases move together (the grey
+    direction), against the sum of their gradients: one channel alone carries a third of the
+    signal over the same round-off, which takes the deepest level past the tolerance."""
     mips, scatter = pyramid
     gpu = [torch.from_numpy(m).cuda() for m in mips]
     n_levels = len(mips) - 1
@@ -129,14 +153,15 @@ def test_gradient_matches_finite_difference(module, pyramid):
     chain(module, gpu, params).sum().backward()
     h = 3e-2
     for k in range(n_levels):
-        i = (k + 1) * param_count(module) - 1            # level k's output bias (the blend)
+        end = (k + 1) * param_count(module)
+        i = [end - 12 + 4 * c + 3 for c in range(3)]     # level k's blend bias per channel
         plus, minus = params.detach().clone(), params.detach().clone()
         plus[i] += h
         minus[i] -= h
         with torch.no_grad():
             fd = (chain(module, gpu, plus).double().sum()
                   - chain(module, gpu, minus).double().sum()) / (2 * h)
-        assert params.grad[i].item() == pytest.approx(fd.item(), rel=1e-3), k
+        assert params.grad[i].sum().item() == pytest.approx(fd.item(), rel=1e-3), k
 
 
 @needs_cuda

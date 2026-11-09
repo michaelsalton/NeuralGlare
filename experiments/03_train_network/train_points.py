@@ -6,7 +6,8 @@ resolution, whose "mip" is the input frame itself:
 (Step 2, coma: every level has 4 taps, w = softmax(MLP(uv)) over mip(x),
 mip(x + o), mip(x - o) and the level below, o = H * d_hat texels; glare.slang. Step 2, spikes,
 --arch spikes: 14 streaked rays from mip 0, two families, mixed into the full-resolution output by
-softmax(SpikeMLP(uv)); glare.slang. --arch offsets runs without them.)
+softmax(SpikeMLP(uv)); glare.slang. --arch per_channel: every softmax, the levels' and the spike
+mix's, has one set of logits per colour channel, the rays streaked from the input frame.)
 Phase 1's up[0] is half resolution, while the lens reference is the full frame convolved with
 the PSF, most of whose energy sits in a core a few pixels wide. The input path carries the core,
 the pyramid the halo. Same upsample kernel, one more network in the weight buffer. Every level
@@ -48,8 +49,8 @@ the lerp (2-weight networks), and before the validation frame (squared loss on a
 train_points_<arch>_<init>_lr<lr>).
 
     uv run python experiments/03_train_network/train_points.py --run default --study baseline
-    uv run python experiments/03_train_network/train_points.py --run default --study spikes
-    uv run python experiments/03_train_network/train_points.py --run default --study coma --arch offsets --seed 1
+    uv run python experiments/03_train_network/train_points.py --run default --study per_channel
+    uv run python experiments/03_train_network/train_points.py --run default --study per_channel --seed 1
                                                     # delta re-measurement (decision log 2026-11-04)
 
 --study names the folder the run's files go to, outputs/03_train_network/<run>/<study>/<stage>/
@@ -89,13 +90,14 @@ from train_levels import (
 from train_pyramid import level_params, slang_mips
 
 EXPERIMENT = "03_train_network"
-STUDIES = ("setup", "baseline", "radial_input", "coma", "spikes", "spikes_full")   # one per ablation
+STUDIES = ("setup", "baseline", "radial_input", "coma", "spikes", "spikes_full",
+           "per_channel")                   # one per ablation
 # --arch, part of every output name, and the image the spike rays are streaked from (None: no
-# spike term). glare.slang runs all three: offsets (4 taps per level, softmax(MLP(uv)), study
-# coma), spikes (offsets plus rays from mip 0, study spikes, current best), spikes_full (rays from
-# the input frame, study spikes_full; decision log 2026-11-05). Earlier: lerp (MLP(uv), Step 1)
-# and lerp_h (MLP(H), radial_input), which glare.slang no longer runs.
-SPIKE_SOURCE = {"spikes_full": "input", "spikes": "mip0", "offsets": None}
+# spike term). glare.slang runs per_channel (spikes_full with one softmax per colour channel,
+# study per_channel; decision log 2026-11-09). Earlier, with grey weights, which glare.slang no
+# longer runs: lerp (MLP(uv), Step 1), lerp_h (MLP(H), radial_input), offsets (4 taps per level,
+# study coma), spikes (rays from mip 0) and spikes_full (rays from the input frame).
+SPIKE_SOURCE = {"per_channel": "input"}
 ARCHS = tuple(SPIKE_SOURCE)
 OFFSET_SHARE = 0.01                 # each offset tap's share of the mip's weight at init
                                     # (decision log 2026-11-04)
@@ -116,6 +118,8 @@ EDGE_RATIO = 2.0                    # criterion (2), the Phase 0 proceed rule's 
 VIEW_H = (0.0, 0.5, 0.88)           # views.py: the test sources nearest these field heights
 VIEW_PX = 160                       # views.py: crop size around each view source
 BLEND_GRID = (27, 48)               # views.py: (rows, cols) of the screen grid for the blend maps
+CHANNELS = 3                        # glare.slang's softmax_rgb: logits channel-major, R, G, B
+VIEW_CHANNEL = 1                    # the channel saved as `blend` / `spike_mix` (G), as before
 
 
 def train_frames(bank, rows, cols):
@@ -140,7 +144,8 @@ def fitted_pyramid_init(gen, net, n_levels, fit, t_pass=T_PASS):
     the log of the tap weights, the low tap's = t). URP with m mips: up[k] = lerp(mip_k, up(up[k+1]), s) for k < m-1,
     up[m-1] = mip_{m-1}: t = s, then t = t_pass. URP's last step out = input + I * up(up[0])
     adds light; the energy-conserving lerp with the same shape is that divided by 1 + I,
-    t = I / (1 + I). Hidden layers stay random so uv can still be learned."""
+    t = I / (1 + I). Every channel starts with the same logits (grey). Hidden layers stay random
+    so uv can still be learned."""
     p = URPBloomParams(**{**fit, "tint": tuple(fit["tint"])})
     assert p.tint == (1.0, 1.0, 1.0), "a tint isn't representable by grey weights"
     assert p.max_iterations <= n_levels - 1, "fit uses more mips than the model has"
@@ -155,25 +160,27 @@ def fitted_pyramid_init(gen, net, n_levels, fit, t_pass=T_PASS):
         w[hidden_end:-net.outputs] = 0                  # W2: output independent of uv
         # b2 = log of the target weights: softmax(log w) = w, since they sum to 1. The low tap
         # keeps t; the offset taps take OFFSET_SHARE each of the mip's 1 - t
-        assert net.outputs == 4, "init written for glare.slang's 4 taps"
+        assert net.outputs == 4 * CHANNELS, "init written for glare.slang's 4 taps per channel"
         e = OFFSET_SHARE
-        w[-net.outputs:] = torch.tensor(np.log([(1 - t) * (1 - 2 * e), (1 - t) * e,
-                                                (1 - t) * e, t]), dtype=w.dtype)
+        w[-net.outputs:] = torch.tensor(np.tile(np.log([(1 - t) * (1 - 2 * e), (1 - t) * e,
+                                                        (1 - t) * e, t]), CHANNELS), dtype=w.dtype)
         nets.append(w)
     return torch.cat(nets)
 
 
 def spike_init(gen, module, share=SPIKE_SHARE, decay=SPIKE_DECAY):
     """The spike section: SpikeMLP with its output layer 0 and biases log(1 - 2 share, share,
-    share), so each family starts with `share` of the light everywhere, then the profile logits
-    z[p][n] = -n 4^p / decay for both families. A ray's weight at distance d is the product of
-    one softmax weight per base-4 digit of d, so these logits give exactly exp(-d / decay)
-    (normalised over 0..63 texels)."""
+    share) in every channel, so each family starts with `share` of the light everywhere, then the
+    profile logits z[p][n] = -n 4^p / decay for both families. A ray's weight at distance d is
+    the product of one softmax weight per base-4 digit of d, so these logits give exactly
+    exp(-d / decay) (normalised over 0..63 texels)."""
     lay = spike_layout(module)
     net = lay.net
     w = init_params(gen, net)
     w[net.inputs * net.hidden + net.hidden:-net.outputs] = 0   # W2: output independent of uv
-    w[-net.outputs:] = torch.tensor(np.log([1 - 2 * share, share, share]), dtype=w.dtype)
+    assert net.outputs == 3 * CHANNELS, "init written for glare.slang's 3 mix weights per channel"
+    w[-net.outputs:] = torch.tensor(np.tile(np.log([1 - 2 * share, share, share]), CHANNELS),
+                                    dtype=w.dtype)
     z = [-n * lay.taps ** p / decay for p in range(lay.passes) for n in range(lay.taps)]
     return torch.cat([w, torch.tensor(z * 2, dtype=w.dtype)])
 
@@ -297,7 +304,8 @@ def save_views(module, params, img, positions, path, source="mip0"):
     """What views.py draws, saved with every run so a figure never has to re-run an old
     architecture: the output (float32, unclamped) in VIEW_PX crops around the view sources,
     and each level's blend t over the screen (and the spike mix weights, if any), both from the
-    Slang model."""
+    Slang model: VIEW_CHANNEL's as `blend` / `spike_mix`, so views.py reads every run alike, and
+    all channels' as `blend_rgb` / `spike_mix_rgb`."""
     h, w = img.shape[:2]
     mips, src, _ = prepare(module, img)
     extra = {}
@@ -307,18 +315,22 @@ def save_views(module, params, img, positions, path, source="mip0"):
                              indexing="ij")
         uv = torch.tensor(np.stack([gu.ravel(), gv.ravel()], -1), dtype=torch.float32,
                           device="cuda")
-        blend = np.stack([module.filter_weights(uv=uv, size=spy.int2(w, h),
-                                                params=level_params(module, params, k))
-                          [:, 3].cpu().numpy().reshape(BLEND_GRID)     # the low tap: t
-                          for k in range(len(mips))])
+        blend = np.stack([[module.filter_weights(uv=uv, size=spy.int2(w, h),
+                                                 params=level_params(module, params, k), channel=c)
+                           [:, 3].cpu().numpy().reshape(BLEND_GRID)    # the low tap: t
+                           for c in range(CHANNELS)] for k in range(len(mips))])
+        extra["blend_rgb"] = blend.astype(np.float32)                  # (level, channel, row, col)
         if has_spikes(module, params.numel(), len(mips)):
-            mix = module.spike_mix(uv=uv, params=params,
-                                   offset=len(mips) * level_mlp(module).param_count)
-            extra["spike_mix"] = mix.cpu().numpy().T.reshape(3, *BLEND_GRID).astype(np.float32)
+            mix = np.stack([module.spike_mix(uv=uv, params=params,
+                                             offset=len(mips) * level_mlp(module).param_count,
+                                             channel=c).cpu().numpy().T.reshape(3, *BLEND_GRID)
+                            for c in range(CHANNELS)]).astype(np.float32)   # (channel, weight, ...)
+            extra |= {"spike_mix": mix[VIEW_CHANNEL], "spike_mix_rgb": mix}
     pos = view_sources(positions, w, h)
     crops = np.stack([view_crop(out, x, y) for x, y in pos])
     np.savez_compressed(path, pos=np.array(pos), h=[field_height(x, y, w, h) for x, y in pos],
-                        out=crops.astype(np.float32), blend=blend.astype(np.float32), **extra)
+                        out=crops.astype(np.float32),
+                        blend=blend[:, VIEW_CHANNEL].astype(np.float32), **extra)
 
 
 def summarize(records):
@@ -419,8 +431,8 @@ def main():
     ap.add_argument("--loss", choices=["abs", "sq"], default="abs",
                     help="absolute or squared log error (decision log 2026-11-03)")
     ap.add_argument("--arch", choices=ARCHS, default=ARCHS[0],
-                    help="spikes_full / spikes: with the spike term, rays from the input frame / "
-                         "mip 0; offsets: without (the coma model)")
+                    help="per_channel: spikes_full's model with one softmax per colour channel "
+                         "(the only architecture glare.slang runs now)")
     ap.add_argument("--init", choices=["fitted", "neutral"], default="fitted")
     ap.add_argument("--t-pass", type=float, default=T_PASS,
                     help="--init fitted: blend of the levels URP leaves unused")
