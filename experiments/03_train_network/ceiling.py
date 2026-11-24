@@ -17,6 +17,18 @@ train_points' measurement.
     identity_fine, aperture_fine
                 from the 5x oversampled test PSFs (psf_bank.py --oversample 5 --only test):
                 the sampling control, and aperture_d7 rotated at 5x, then summed to pixels
+    sym_core, sym_rays, sym_glow, sym_not_core, sym_not_rays, sym_not_glow,
+    sym_rays_w3, sym_glow_w3
+                the coma split (decision log 2026-11-17): aperture_fine applied only inside a
+                mask, identity_fine elsewhere. The masks (coma_masks) partition the PSF into
+                core (aperture_fine's round core), rays (within 2 px of a ray line) and glow
+                (the rest); sym_<piece> symmetrises one piece, sym_not_<piece> the other two,
+                *_w3 the 3 px ray band (robustness)
+    sym_annulus, sym_rays_far, sym_glow_far, rays_far_bright
+                ray follow-ups (decision log 2026-11-17, an amendment after the coma split):
+                the ray band split at ANNULUS_PX into the 5.25-9 px annulus and the far rays;
+                rays_far_bright is sym_rays_far with each ray's exact light restored per
+                channel (exact brightness, symmetric shape)
 
 Caveat found on the first run (decision log 2026-11-04): an oracle is only a ceiling if it is
 the best kernel without its feature. The angular *mean* is the best round kernel in linear
@@ -64,6 +76,11 @@ SPIKES = 14                         # 7 aperture blades: 14 spikes, 360/14 apart
 BLADES = 7                          # the PSF's symmetry: 7 rotations by 360/7, plus a mirror
 CORE_PX = 5                         # aperture_d7: ring median within this radius (99.7 % of the energy)
 APERTURE_CONTROL_FLIP = 0.01        # aperture oracles at the H ~ 0 source (already symmetric) must score below
+RAY_HALF_WIDTH_PX = 2.0             # coma split: ray band, perpendicular px (ray FWHM 1.2-2.4, decision log 2026-11-05)
+ROBUST_HALF_WIDTH_PX = 3.0          # coma split: the robustness band
+VALIDITY_SLACK = 1e-3               # coma split: a one-piece oracle may exceed aperture_fine by this much
+ANNULUS_PX = 9.0                    # ray follow-ups: the +-2 px band fills the ring inside this (0.449 * 9 ~ 4 px)
+RAY_PROFILE_BINS_PX = (ANNULUS_PX, 16.0, 32.0)   # ray profile oracle: lower edges of the radial segments
 
 
 def rings(K):
@@ -161,6 +178,86 @@ def aperture_fine_psf(psf, fine, s):
     return out
 
 
+PIECES = ("core", "rays", "glow")
+
+
+def coma_masks(K, half_width=RAY_HALF_WIDTH_PX):
+    """Partition of a K x K PSF about its centre pixel into core / rays / glow (decision log
+    2026-11-17). core: aperture_fine's round core (ring index <= 2 * CORE_PX, r <= 5.25 px);
+    rays: outside it, within half_width px perpendicular distance of one of the 14 ray lines
+    (angles k * 360/14 from arctan2(dy, dx), y down as glare.slang's RAY_DIRS); glow: the rest.
+    Built from radius and the ray angles only, so each mask is invariant under the PSF's
+    symmetry and symmetrising inside it is a restriction of the aperture_fine median.
+    Perpendicular distance rather than angle, since a ray has a constant width in pixels; rays
+    are 0.449 r px apart, so a +-2 px band fills the ring up to r ~ 9 px. "ray" (not a piece)
+    is every pixel's nearest ray index k, whose direction is k * 360/14."""
+    c = K // 2
+    y, x = np.mgrid[:K, :K]
+    dx, dy = x - c, y - c
+    step = 2 * np.pi / SPIKES
+    shifted = np.arctan2(dy, dx) + step / 2
+    off = shifted % step - step / 2                             # angle to the nearest ray
+    dist = np.hypot(dx, dy) * np.abs(np.sin(off))               # perpendicular px to it
+    core = rings(K) <= 2 * CORE_PX
+    rays = ~core & (dist <= half_width + 1e-9)    # pixels exactly half_width away are rays on both
+                                                   # sides of a ray (float rounding broke the mirror)
+    ray = np.floor(shifted / step).astype(int) % SPIKES          # the ray `off` was measured from
+    return {"core": core, "rays": rays, "glow": ~core & ~rays, "ray": ray}
+
+
+FAR_PIECES = ("core", "annulus", "rays_far", "glow_far")
+
+
+def far_masks(K, half_width=RAY_HALF_WIDTH_PX):
+    """The coma split's pieces with the ray band split at ANNULUS_PX (decision log 2026-11-17,
+    ray follow-ups): core unchanged; annulus = every pixel outside the core with r < ANNULUS_PX,
+    whatever the band says; rays_far, glow_far = the band and the glow at r >= ANNULUS_PX."""
+    m = coma_masks(K, half_width)
+    c = K // 2
+    y, x = np.mgrid[:K, :K]
+    near = np.hypot(x - c, y - c) < ANNULUS_PX
+    return {"core": m["core"], "annulus": ~m["core"] & near, "rays_far": m["rays"] & ~near,
+            "glow_far": m["glow"] & ~near, "ray": m["ray"]}
+
+
+def radial_segment(K, edges=RAY_PROFILE_BINS_PX):
+    """Each pixel's radial segment about the centre pixel: -1 inside edges[0], then i for
+    edges[i] <= r < edges[i + 1], the last segment open to the kernel's corners."""
+    c = K // 2
+    y, x = np.mgrid[:K, :K]
+    return np.digitize(np.hypot(x - c, y - c), edges) - 1
+
+
+def restore_ray_light(kernel, exact, rays, groups):
+    """Per group label g and channel, scale the kernel's pixels in rays & (groups == g) so their
+    sum is the exact kernel's there, keeping the kernel's shape inside each group. With the ray
+    index as the label, each ray gets its exact brightness (the best a per-ray, per-channel
+    weight could do); with ray x segments, its exact coarse falloff too. A group the kernel
+    holds no light in stays as is."""
+    out = kernel.copy()
+    for g in np.unique(groups[rays]):
+        sel = rays & (groups == g)
+        have, want = out[sel].sum(axis=0), exact[sel].sum(axis=0)
+        out[sel] = out[sel] * np.divide(want, have, out=np.ones_like(want), where=have > 0)
+    return out
+
+
+def masked_psf(sym, exact, mask):
+    """The symmetric kernel inside the mask (K x K bool), the exact one outside."""
+    return np.where(mask[..., None], sym, exact)
+
+
+# Coma split (decision log 2026-11-17): oracle -> (pieces symmetrised, ray band half-width)
+COMA_SPLIT = {"sym_core": (("core",), RAY_HALF_WIDTH_PX),
+              "sym_rays": (("rays",), RAY_HALF_WIDTH_PX),
+              "sym_glow": (("glow",), RAY_HALF_WIDTH_PX),
+              "sym_not_core": (("rays", "glow"), RAY_HALF_WIDTH_PX),
+              "sym_not_rays": (("core", "glow"), RAY_HALF_WIDTH_PX),
+              "sym_not_glow": (("core", "rays"), RAY_HALF_WIDTH_PX),
+              "sym_rays_w3": (("rays",), ROBUST_HALF_WIDTH_PX),
+              "sym_glow_w3": (("glow",), ROBUST_HALF_WIDTH_PX)}
+
+
 # Oracles of the oversampled bank: f(pixel PSF, fine PSF, s); run when the bank exists
 FINE_ORACLES = {"identity_fine": lambda k, f, s: bin_fine(f, s),
                 "aperture_fine": aperture_fine_psf}
@@ -181,7 +278,20 @@ LABELS = {"identity": "Oracle: identity (control)",
           "aperture": "Oracle: aperture-symmetric, 14-fold median (INVALID: control failed, decision log 2026-11-04)",
           "aperture_d7": "Oracle: polygon-symmetric, 7 rotations + mirror, round core (INVALID: control failed, interpolation floor, decision log 2026-11-04)",
           "identity_fine": "Oracle: identity from the 5x bank, summed to pixels (sampling control)",
-          "aperture_fine": "Oracle: polygon-symmetric at 5x, round core (spikes kept, no coma)"}
+          "aperture_fine": "Oracle: polygon-symmetric at 5x, round core (spikes kept, no coma)",
+          "sym_core": "Coma split: core symmetrised (round core), rays and glow exact",
+          "sym_rays": "Coma split: rays symmetrised (+-2 px band), core and glow exact",
+          "sym_glow": "Coma split: glow symmetrised, core and rays (+-2 px) exact",
+          "sym_not_core": "Coma split: rays and glow symmetrised, core exact",
+          "sym_not_rays": "Coma split: core and glow symmetrised, rays exact",
+          "sym_not_glow": "Coma split: core and rays symmetrised, glow exact",
+          "sym_rays_w3": "Coma split: rays symmetrised (+-3 px band, robustness)",
+          "sym_glow_w3": "Coma split: glow symmetrised (+-3 px ray band, robustness)",
+          "sym_annulus": "Ray follow-up: 5.25-9 px annulus symmetrised, the rest exact",
+          "sym_rays_far": "Ray follow-up: rays beyond 9 px symmetrised, the rest exact",
+          "sym_glow_far": "Ray follow-up: glow beyond 9 px symmetrised, the rest exact",
+          "rays_far_bright": "Ray follow-up: rays beyond 9 px symmetric in shape, exact in light per ray",
+          "rays_far_profile": "Ray profile: rays beyond 9 px symmetric across, exact in light per ray and segment"}
 OVERSAMPLE = 5                      # aperture_fine: psf_bank.py --oversample
 BINS = ("centre", "mid", "edge")
 
@@ -216,17 +326,57 @@ def main():
             "the oversampled bank's test positions differ from the pixel bank's")
         fines = z["psf"][fine_test]                  # float32, (35, K·s, K·s, 3)
 
-    results = {}
-    for name, edit in {**oracles, **FINE_ORACLES}.items():
-        if name in FINE_ORACLES:
-            kernels = [edit(k, f.astype(np.float64), OVERSAMPLE) for k, f in zip(psfs, fines)]
-        else:
-            kernels = [edit(k) for k in psfs]
+    results, fine_kernels = {}, {}
+
+    def score(name, kernels):
         out, _ = splat(img.shape, points, kernels)
         records = window_records(out, ref, positions, size, ppd)
         results[name] = {"summary": summarize(records), "records": records}
         print(f"{name}: FLIP " + " / ".join(f"{results[name]['summary'][b]['flip']:.4f}"
                                             for b in BINS), flush=True)
+
+    for name, edit in {**oracles, **FINE_ORACLES}.items():
+        if name in FINE_ORACLES:
+            kernels = [edit(k, f.astype(np.float64), OVERSAMPLE) for k, f in zip(psfs, fines)]
+            fine_kernels[name] = kernels
+        else:
+            kernels = [edit(k) for k in psfs]
+        score(name, kernels)
+
+    # Coma split (decision log 2026-11-17): every masked oracle is derived from the two fine
+    # kernel lists, so the rotations run once
+    sym, exact = fine_kernels["aperture_fine"], fine_kernels["identity_fine"]
+    K = psfs.shape[1]
+    masks = {w: coma_masks(K, w) for w in (RAY_HALF_WIDTH_PX, ROBUST_HALF_WIDTH_PX)}
+    for m in masks.values():                     # union control (0a): a partition ...
+        assert (sum(m[p].astype(int) for p in PIECES) == 1).all(), "coma masks don't partition the PSF"
+    for s_k, e_k in zip(sym, exact):             # ... whose pieces, applied in turn, rebuild aperture_fine
+        k = e_k
+        for p in PIECES:
+            k = masked_psf(s_k, k, masks[RAY_HALF_WIDTH_PX][p])
+        assert np.array_equal(k, s_k), "the coma pieces don't rebuild aperture_fine"
+    for name, (pieces, width) in COMA_SPLIT.items():
+        mask = np.logical_or.reduce([masks[width][p] for p in pieces])
+        score(name, [masked_psf(s_k, e_k, mask) for s_k, e_k in zip(sym, exact)])
+
+    # Ray follow-ups (decision log 2026-11-17, amendment after the coma split)
+    fm = far_masks(K)
+    assert (sum(fm[p].astype(int) for p in FAR_PIECES) == 1).all(), "far masks don't partition the PSF"
+    for s_k, e_k in zip(sym, exact):
+        k = e_k
+        for p in FAR_PIECES:
+            k = masked_psf(s_k, k, fm[p])
+        assert np.array_equal(k, s_k), "the far pieces don't rebuild aperture_fine"
+    for p in FAR_PIECES[1:]:
+        score(f"sym_{p}", [masked_psf(s_k, e_k, fm[p]) for s_k, e_k in zip(sym, exact)])
+    score("rays_far_bright", [restore_ray_light(masked_psf(s_k, e_k, fm["rays_far"]), e_k,
+                                                fm["rays_far"], fm["ray"])
+                              for s_k, e_k in zip(sym, exact)])
+    # Ray profile oracle (decision log 2026-11-17, second amendment): light per ray and segment
+    segment_groups = fm["ray"] * len(RAY_PROFILE_BINS_PX) + radial_segment(K)
+    score("rays_far_profile", [restore_ray_light(masked_psf(s_k, e_k, fm["rays_far"]), e_k,
+                                                 fm["rays_far"], segment_groups)
+                               for s_k, e_k in zip(sym, exact)])
 
     study, tag = STEP1
     step1 = json.loads((Path(run_dir(EXPERIMENT, args.run, "eval", study)) /
@@ -265,6 +415,52 @@ def main():
                 "aperture_reaches_target": flip(ap_s, "edge") < target,
                 "first": ("spikes" if split["edge"]["spike_gain"] >= split["edge"]["coma_remainder"]
                           else "field-aligned offsets")}
+
+    # Coma split (decision log 2026-11-17)
+    one = {p: results[f"sym_{p}"]["summary"] for p in PIECES}
+    valid = all(flip(one[p], b) <= flip(ap_s, b) + VALIDITY_SLACK for p in PIECES for b in BINS)
+    picked = max(PIECES, key=lambda p: flip(one[p], "edge")) if valid else None
+    w2 = flip(one["rays"], "edge") - flip(one["glow"], "edge")
+    w3 = (flip(results["sym_rays_w3"]["summary"], "edge")
+          - flip(results["sym_glow_w3"]["summary"], "edge"))
+    answers["coma_split"] = {
+        "centre_controls": {name: centre_control(name) for name in COMA_SPLIT},
+        "valid": valid,
+        "picked": picked,
+        "picked_alone_reaches_target": (flip(results[f"sym_not_{picked}"]["summary"], "edge") < target
+                                        if picked else None),
+        "rays_vs_glow_order_robust": bool(np.sign(w2) == np.sign(w3))}
+
+    # Ray follow-ups (decision log 2026-11-17, amendment)
+    far_names = ("sym_annulus", "sym_rays_far", "sym_glow_far", "rays_far_bright")
+    fs = {name: results[name]["summary"] for name in far_names}
+    bounds = {"sym_annulus": "sym_rays", "sym_rays_far": "sym_rays", "sym_glow_far": "sym_glow",
+              "rays_far_bright": "sym_rays_far"}
+    validity = {name: all(flip(fs[name], b) <= flip(results[bound]["summary"], b) + VALIDITY_SLACK
+                          for b in BINS)
+                for name, bound in bounds.items()}
+    where = ("rays_far" if flip(fs["sym_rays_far"], "edge") >= flip(fs["sym_annulus"], "edge")
+             else "annulus")
+    floor = centre_control("sym_rays_far")["flip"]
+    gain = flip(fs["sym_rays_far"], "edge") - flip(fs["rays_far_bright"], "edge")
+    remainder = flip(fs["rays_far_bright"], "edge") - floor
+    answers["ray_followups"] = {
+        "centre_controls": {name: centre_control(name) for name in far_names},
+        "validity": validity,
+        "where": where,
+        "floor": floor, "brightness_gain": gain, "shape_remainder": remainder,
+        "what": ("brightness" if gain >= remainder else "shape") if where == "rays_far" else None}
+
+    # Ray profile oracle (decision log 2026-11-17, second amendment)
+    prof = results["rays_far_profile"]["summary"]
+    along = flip(fs["rays_far_bright"], "edge") - flip(prof, "edge")
+    across = flip(prof, "edge") - floor
+    answers["ray_profile"] = {
+        "centre_control": centre_control("rays_far_profile"),
+        "valid": all(flip(prof, b) <= flip(fs["rays_far_bright"], b) + VALIDITY_SLACK for b in BINS),
+        "along_gain": along, "across_remainder": across,
+        "first": "along" if along >= across else "across",
+        "close": abs(along - across) < 0.005}
 
     rows = [(f"{COMPARE[b]} ({phase0_fit[b]} fit)", phase0[b]) for b in COMPARE]
     rows += [("Step 1 baseline: MLP(uv)", step1)]
@@ -318,6 +514,76 @@ def main():
               f"- a centred spike term could reach the target (aperture_fine edge FLIP < "
               f"{target:.3f}): **{answers['aperture_reaches_target']}**\n"
               f"- built first: **{answers['first']}**\n")
+
+    cs = answers["coma_split"]
+    builds = {"glow": "field-aligned radial glow", "rays": "per-ray weights by angle to the field direction",
+              "core": "a longer radial offset pair", None: "not ranked (validity failed)"}
+    split_rows = "\n".join(
+        f"| `{name}` | {' + '.join(pieces)} | {w:g} px | "
+        + " / ".join(f"{flip(results[name]['summary'], b):.4f}" for b in BINS)
+        + f" | {results[name]['summary']['edge']['energy'] * 100:+.2f} % | "
+        f"{cs['centre_controls'][name]['flip']:.4f} |"
+        for name, (pieces, w) in COMA_SPLIT.items())
+    reach = cs["picked_alone_reaches_target"]
+    report += (f"\nComa split (decision log 2026-11-17): aperture_fine ({' / '.join(f'{flip(ap_s, b):.4f}' for b in BINS)}) "
+               f"applied only to the named pieces, the exact PSF elsewhere. Pieces: core = r <= "
+               f"{CORE_PX + 0.25:g} px (aperture_fine's round core), rays = within the band of a ray line, "
+               f"glow = the rest.\n\n"
+               f"| Oracle | Symmetrised | Ray band | FLIP c / m / e | Energy, edge | FLIP at H ~ 0 |\n"
+               f"|---|---|---|---|---|---|\n{split_rows}\n\n"
+               f"Pre-registered questions (decision log 2026-11-17):\n"
+               f"- centre control: every masked oracle < {APERTURE_CONTROL_FLIP:g} at the source nearest "
+               f"H = 0: **{all(v['passes'] for v in cs['centre_controls'].values())}**\n"
+               f"- validity: each one-piece oracle <= aperture_fine + {VALIDITY_SLACK:g} in every bin: "
+               f"**{cs['valid']}**\n"
+               f"- largest one-piece edge FLIP, built first: **{cs['picked']}** ({builds[cs['picked']]})\n"
+               f"- the picked piece alone could reach the target (sym_not_{cs['picked']} edge FLIP < "
+               f"{target:.4f}): **{reach}**\n"
+               f"- rays vs glow order the same with the +-3 px band: **{cs['rays_vs_glow_order_robust']}**\n")
+
+    rf = answers["ray_followups"]
+    pieces = {"sym_annulus": f"annulus (5.25 <= r < {ANNULUS_PX:g} px)",
+              "sym_rays_far": f"rays (+-2 px), r >= {ANNULUS_PX:g} px",
+              "sym_glow_far": f"glow, r >= {ANNULUS_PX:g} px",
+              "rays_far_bright": f"rays r >= {ANNULUS_PX:g} px, shape only (light restored per ray)"}
+    far_rows = "\n".join(
+        f"| `{name}` | {pieces[name]} | "
+        + " / ".join(f"{flip(fs[name], b):.4f}" for b in BINS)
+        + f" | {fs[name]['edge']['energy'] * 100:+.2f} % | {rf['centre_controls'][name]['flip']:.4f} | "
+        f"{bounds[name]} | **{rf['validity'][name]}** |"
+        for name in far_names)
+    whats = {"brightness": "per-ray weights by angle to the field direction (SpikeMLP)",
+             "shape": "the rays' shape: an angle-dependent per-ray blur", None: "not asked (the annulus comes first)"}
+    report += (f"\nRay follow-ups (decision log 2026-11-17, an amendment after the coma split): the ray band "
+               f"split at {ANNULUS_PX:g} px, and the far rays' brightness restored.\n\n"
+               f"| Oracle | Symmetrised | FLIP c / m / e | Energy, edge | FLIP at H ~ 0 | Bounded by | Valid |\n"
+               f"|---|---|---|---|---|---|---|\n{far_rows}\n\n"
+               f"Pre-registered questions (decision log 2026-11-17, ray follow-ups):\n"
+               f"- centre control: every new oracle < {APERTURE_CONTROL_FLIP:g} at the source nearest H = 0: "
+               f"**{all(v['passes'] for v in rf['centre_controls'].values())}**\n"
+               f"- validity: each oracle <= its bound + {VALIDITY_SLACK:g} in every bin: "
+               f"**{all(rf['validity'].values())}**\n"
+               f"- where (sym_rays_far vs sym_annulus at the edge): **{rf['where']}**\n"
+               f"- what: brightness gain (sym_rays_far - rays_far_bright, edge) {rf['brightness_gain']:+.4f} vs "
+               f"shape remainder (rays_far_bright edge - floor {rf['floor']:.4f}) {rf['shape_remainder']:+.4f}: "
+               f"**{rf['what']}** ({whats[rf['what']]})\n")
+
+    rp = answers["ray_profile"]
+    firsts = {"along": "along the ray: per-ray weights and profiles by angle to the field direction",
+              "across": "across the ray: an angle-dependent per-ray blur"}
+    report += (f"\nRay profile oracle (decision log 2026-11-17, a second amendment): the far rays' light "
+               f"restored per ray and radial segment ({' / '.join(f'{e:g}' for e in RAY_PROFILE_BINS_PX)} px).\n\n"
+               f"| Oracle | FLIP c / m / e | Energy, edge | FLIP at H ~ 0 |\n|---|---|---|---|\n"
+               f"| `rays_far_profile` | " + " / ".join(f"{flip(prof, b):.4f}" for b in BINS)
+               + f" | {prof['edge']['energy'] * 100:+.2f} % | {rp['centre_control']['flip']:.4f} |\n\n"
+               f"Pre-registered questions (decision log 2026-11-17, ray profile oracle):\n"
+               f"- centre control: < {APERTURE_CONTROL_FLIP:g} at the source nearest H = 0: "
+               f"**{rp['centre_control']['passes']}**\n"
+               f"- validity: rays_far_profile <= rays_far_bright + {VALIDITY_SLACK:g} in every bin: "
+               f"**{rp['valid']}**\n"
+               f"- along-ray gain (rays_far_bright - rays_far_profile, edge) {along:+.4f} vs across-ray "
+               f"remainder (rays_far_profile edge - floor {floor:.4f}) {across:+.4f}: **{rp['first']}** "
+               f"({firsts[rp['first']]}); within 0.005: **{rp['close']}**\n")
     (out_dir("report") / f"ceiling{suffix}.md").write_text(report)
     print("\n" + report)
 

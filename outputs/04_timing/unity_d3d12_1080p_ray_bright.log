@@ -1,0 +1,157 @@
+Mono path[0] = 'D:/Development/Projects/NeuralGlare/engines/unity/NeuralGlareURP/Builds/NeuralGlareURP_Data/Managed'
+Mono config path = 'D:/Development/Projects/NeuralGlare/engines/unity/NeuralGlareURP/Builds/MonoBleedingEdge/etc'
+CodeReloadManager initialized
+Found 1 interfaces on host : 0) 10.0.0.213
+Player connection [15428]  Target information:
+
+Player connection [15428]  * "[IP] 10.0.0.213 [Port] 55000 [Flags] 2 [Guid] 2022868945 [EditorId] 2973658554 [Version] 1048832 [Id] WindowsPlayer(2,pc) [Debug] 0 [PackageName] WindowsPlayer [ProjectName] NeuralGlareURP" 
+
+Player connection [15428] Started UDP target info broadcast (1) on [225.0.0.222:54997].
+
+Input System module state changed to: Initialized.
+[Physics::Module] Initialized fallback backend.
+[Physics::Module] Id: 0xdecafbad
+Initialize engine version: 6000.6.7f1 (b22767f04f04)
+[EntityIdStore] init: VM path (explicit commit), pageSize=4096, blockCount=262144, entitiesPerBlock=1024, blocksPerSlotPage=0, slots reserved=4294967296 bytes
+[Subsystems] Discovering subsystems at path D:/Development/Projects/NeuralGlare/engines/unity/NeuralGlareURP/Builds/NeuralGlareURP_Data/UnitySubsystems
+Forcing GfxDevice: Direct3D 12
+GfxDevice: creating device client; kGfxThreadingModeSplitJobs
+d3d12: failed to query info queue interface (0x80004002).
+Direct3D:
+    Version:         Direct3D 12 [level 12.2]
+    Renderer:        NVIDIA GeForce RTX 2070 (ID=0x1f07)
+    Vendor:          NVIDIA
+    VRAM:            8006 MB
+    App VRAM Budget: 7238 MB
+    Driver:          32.0.16.2101
+Begin MonoManager ReloadAssembly
+- Finished resetting the current domain, in  0.011 seconds
+[Physics::Module] Selected backend (deferred post-plugins).
+[Physics::Module] Name: PhysX
+[Physics::Module] Id: 0xf2b8ea05
+[Physics::Module] SDK Version: 4.1.2
+[Physics::Module] Integration Version: 1.0.0
+[Physics::Module] Threading Mode: Multi-Threaded
+<RI> Initializing input.
+Using Windows.Gaming.Input
+UnloadTime: 0.810100 ms
+NeuralGlareFeature: weights D:\Development\Projects\NeuralGlare\outputs\04_timing\models\ray_bright.bytes
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace () (at C:/build/output/unity/unity/Runtime/Export/Scripting/StackTrace.cs:23)
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[]) (at C:/build/output/unity/unity/Runtime/Export/Logging/DebugLogHandler.cs:9)
+UnityEngine.Logger:Log (UnityEngine.LogType,object) (at C:/build/output/unity/unity/Runtime/Export/Logging/Logger.cs:60)
+UnityEngine.Debug:Log (object) (at C:/build/output/unity/unity/Runtime/Export/Debug/Debug.bindings.cs:130)
+NeuralGlare.NeuralGlareFeature:Create () (at D:/Development/Projects/NeuralGlare/engines/unity/NeuralGlareURP/Assets/NeuralGlare/Runtime/NeuralGlareFeature.cs:48)
+UnityEngine.Rendering.Universal.ScriptableRenderer:.ctor (UnityEngine.Rendering.Universal.ScriptableRendererData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/ScriptableRenderer.cs:525)
+UnityEngine.Rendering.Universal.UniversalRenderer:.ctor (UnityEngine.Rendering.Universal.UniversalRendererData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRenderer.cs:220)
+UnityEngine.Rendering.Universal.UniversalRendererData:Create () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRendererData.cs:166)
+UnityEngine.Rendering.Universal.ScriptableRendererData:InternalCreateRenderer () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/ScriptableRendererData.cs:67)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreateRenderers () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:862)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreatePipeline () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:809)
+UnityEngine.Rendering.RenderPipelineAsset:InternalCreatePipeline () (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineAsset.cs:15)
+UnityEngine.Rendering.RenderPipelineManager:TryPrepareRenderPipeline (UnityEngine.Rendering.RenderPipelineAsset) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:172)
+UnityEngine.Rendering.RenderPipelineManager:DoRenderLoop_Internal (UnityEngine.Rendering.RenderPipelineAsset,intptr,object) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:146)
+
+(Filename: C:/build/output/unity/unity/Runtime/Export/Debug/Debug.bindings.cs Line: 130)
+
+Shader 'Hidden/Universal Render Pipeline/GaussianDepthOfField' is not supported or has been stripped from the build (in 'GaussianDepthOfField'). PostProcessing render passes will not execute.
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace () (at C:/build/output/unity/unity/Runtime/Export/Scripting/StackTrace.cs:23)
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[]) (at C:/build/output/unity/unity/Runtime/Export/Logging/DebugLogHandler.cs:9)
+UnityEngine.Logger:Log (UnityEngine.LogType,object) (at C:/build/output/unity/unity/Runtime/Export/Logging/Logger.cs:60)
+UnityEngine.Rendering.Universal.PostProcessUtils:LoadShader (UnityEngine.Shader,string,UnityEngine.LogType) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcessUtils.cs:28)
+UnityEngine.Rendering.Universal.DepthOfFieldGaussianPostProcessPass:.ctor (UnityEngine.Shader) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Passes/PostProcess/DepthOfFieldGaussianPostProcessPass.cs:24)
+UnityEngine.Rendering.Universal.PostProcess:.ctor (UnityEngine.Rendering.Universal.PostProcessData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcess.cs:56)
+UnityEngine.Rendering.Universal.UniversalRenderer:.ctor (UnityEngine.Rendering.Universal.UniversalRendererData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRenderer.cs:427)
+UnityEngine.Rendering.Universal.UniversalRendererData:Create () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRendererData.cs:166)
+UnityEngine.Rendering.Universal.ScriptableRendererData:InternalCreateRenderer () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/ScriptableRendererData.cs:67)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreateRenderers () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:862)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreatePipeline () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:809)
+UnityEngine.Rendering.RenderPipelineAsset:InternalCreatePipeline () (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineAsset.cs:15)
+UnityEngine.Rendering.RenderPipelineManager:TryPrepareRenderPipeline (UnityEngine.Rendering.RenderPipelineAsset) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:172)
+UnityEngine.Rendering.RenderPipelineManager:DoRenderLoop_Internal (UnityEngine.Rendering.RenderPipelineAsset,intptr,object) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:146)
+
+(Filename: ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcessUtils.cs Line: 28)
+
+Shader 'Hidden/Universal Render Pipeline/GaussianDepthOfField' is not supported or has been stripped from the build (in 'GaussianDepthOfField'). PostProcessing render passes will not execute.
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace () (at C:/build/output/unity/unity/Runtime/Export/Scripting/StackTrace.cs:23)
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[]) (at C:/build/output/unity/unity/Runtime/Export/Logging/DebugLogHandler.cs:9)
+UnityEngine.Logger:Log (UnityEngine.LogType,object) (at C:/build/output/unity/unity/Runtime/Export/Logging/Logger.cs:60)
+UnityEngine.Rendering.Universal.PostProcessUtils:LoadShader (UnityEngine.Shader,string,UnityEngine.LogType) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcessUtils.cs:28)
+UnityEngine.Rendering.Universal.DepthOfFieldGaussianPostProcessPass:.ctor (UnityEngine.Shader) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Passes/PostProcess/DepthOfFieldGaussianPostProcessPass.cs:25)
+UnityEngine.Rendering.Universal.PostProcess:.ctor (UnityEngine.Rendering.Universal.PostProcessData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcess.cs:56)
+UnityEngine.Rendering.Universal.UniversalRenderer:.ctor (UnityEngine.Rendering.Universal.UniversalRendererData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRenderer.cs:427)
+UnityEngine.Rendering.Universal.UniversalRendererData:Create () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRendererData.cs:166)
+UnityEngine.Rendering.Universal.ScriptableRendererData:InternalCreateRenderer () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/ScriptableRendererData.cs:67)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreateRenderers () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:862)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreatePipeline () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:809)
+UnityEngine.Rendering.RenderPipelineAsset:InternalCreatePipeline () (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineAsset.cs:15)
+UnityEngine.Rendering.RenderPipelineManager:TryPrepareRenderPipeline (UnityEngine.Rendering.RenderPipelineAsset) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:172)
+UnityEngine.Rendering.RenderPipelineManager:DoRenderLoop_Internal (UnityEngine.Rendering.RenderPipelineAsset,intptr,object) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:146)
+
+(Filename: ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcessUtils.cs Line: 28)
+
+Shader 'Hidden/Universal Render Pipeline/BokehDepthOfField' is not supported or has been stripped from the build (in 'BokehDepthOfField'). PostProcessing render passes will not execute.
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace () (at C:/build/output/unity/unity/Runtime/Export/Scripting/StackTrace.cs:23)
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[]) (at C:/build/output/unity/unity/Runtime/Export/Logging/DebugLogHandler.cs:9)
+UnityEngine.Logger:Log (UnityEngine.LogType,object) (at C:/build/output/unity/unity/Runtime/Export/Logging/Logger.cs:60)
+UnityEngine.Rendering.Universal.PostProcessUtils:LoadShader (UnityEngine.Shader,string,UnityEngine.LogType) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcessUtils.cs:28)
+UnityEngine.Rendering.Universal.DepthOfFieldBokehPostProcessPass:.ctor (UnityEngine.Shader) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Passes/PostProcess/DepthOfFieldBokehProcessPass.cs:26)
+UnityEngine.Rendering.Universal.PostProcess:.ctor (UnityEngine.Rendering.Universal.PostProcessData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcess.cs:57)
+UnityEngine.Rendering.Universal.UniversalRenderer:.ctor (UnityEngine.Rendering.Universal.UniversalRendererData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRenderer.cs:427)
+UnityEngine.Rendering.Universal.UniversalRendererData:Create () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRendererData.cs:166)
+UnityEngine.Rendering.Universal.ScriptableRendererData:InternalCreateRenderer () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/ScriptableRendererData.cs:67)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreateRenderers () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:862)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreatePipeline () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:809)
+UnityEngine.Rendering.RenderPipelineAsset:InternalCreatePipeline () (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineAsset.cs:15)
+UnityEngine.Rendering.RenderPipelineManager:TryPrepareRenderPipeline (UnityEngine.Rendering.RenderPipelineAsset) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:172)
+UnityEngine.Rendering.RenderPipelineManager:DoRenderLoop_Internal (UnityEngine.Rendering.RenderPipelineAsset,intptr,object) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:146)
+
+(Filename: ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcessUtils.cs Line: 28)
+
+Shader 'Hidden/Universal Render Pipeline/PaniniProjection' is not supported or has been stripped from the build (in 'PaniniProjection'). PostProcessing render passes will not execute.
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace () (at C:/build/output/unity/unity/Runtime/Export/Scripting/StackTrace.cs:23)
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[]) (at C:/build/output/unity/unity/Runtime/Export/Logging/DebugLogHandler.cs:9)
+UnityEngine.Logger:Log (UnityEngine.LogType,object) (at C:/build/output/unity/unity/Runtime/Export/Logging/Logger.cs:60)
+UnityEngine.Rendering.Universal.PostProcessUtils:LoadShader (UnityEngine.Shader,string,UnityEngine.LogType) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcessUtils.cs:28)
+UnityEngine.Rendering.Universal.PaniniProjectionPostProcessPass:.ctor (UnityEngine.Shader) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Passes/PostProcess/PaniniProjectionPostProcessPass.cs:19)
+UnityEngine.Rendering.Universal.PostProcess:.ctor (UnityEngine.Rendering.Universal.PostProcessData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcess.cs:64)
+UnityEngine.Rendering.Universal.UniversalRenderer:.ctor (UnityEngine.Rendering.Universal.UniversalRendererData) (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRenderer.cs:427)
+UnityEngine.Rendering.Universal.UniversalRendererData:Create () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/UniversalRendererData.cs:166)
+UnityEngine.Rendering.Universal.ScriptableRendererData:InternalCreateRenderer () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/ScriptableRendererData.cs:67)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreateRenderers () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:862)
+UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset:CreatePipeline () (at ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/Data/UniversalRenderPipelineAsset.cs:809)
+UnityEngine.Rendering.RenderPipelineAsset:InternalCreatePipeline () (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineAsset.cs:15)
+UnityEngine.Rendering.RenderPipelineManager:TryPrepareRenderPipeline (UnityEngine.Rendering.RenderPipelineAsset) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:172)
+UnityEngine.Rendering.RenderPipelineManager:DoRenderLoop_Internal (UnityEngine.Rendering.RenderPipelineAsset,intptr,object) (at C:/build/output/unity/unity/Runtime/Export/RenderPipeline/RenderPipelineManager.cs:146)
+
+(Filename: ./Library/PackageCache/com.unity.render-pipelines.universal@ffe395a3a1d1/Runtime/PostProcessUtils.cs Line: 28)
+
+GlareTimer: NeuralGlare 16.366 ms (16.362-16.367) -> D:\Development\Projects\NeuralGlare\outputs\04_timing\unity_d3d12_1080p_ray_bright.json
+UnityEngine.Debug:ExtractStackTraceNoAlloc (byte*,int,string)
+UnityEngine.StackTraceUtility:ExtractStackTrace () (at C:/build/output/unity/unity/Runtime/Export/Scripting/StackTrace.cs:23)
+UnityEngine.DebugLogHandler:Internal_Log (UnityEngine.LogType,UnityEngine.LogOption,string,UnityEngine.Object)
+UnityEngine.DebugLogHandler:LogFormat (UnityEngine.LogType,UnityEngine.Object,string,object[]) (at C:/build/output/unity/unity/Runtime/Export/Logging/DebugLogHandler.cs:9)
+UnityEngine.Logger:Log (UnityEngine.LogType,object) (at C:/build/output/unity/unity/Runtime/Export/Logging/Logger.cs:60)
+UnityEngine.Debug:Log (object) (at C:/build/output/unity/unity/Runtime/Export/Debug/Debug.bindings.cs:130)
+NeuralGlare.GlareTimer:Write () (at D:/Development/Projects/NeuralGlare/engines/unity/NeuralGlareURP/Assets/NeuralGlare/Runtime/GlareTimer.cs:121)
+NeuralGlare.GlareTimer:Update () (at D:/Development/Projects/NeuralGlare/engines/unity/NeuralGlareURP/Assets/NeuralGlare/Runtime/GlareTimer.cs:71)
+
+(Filename: C:/build/output/unity/unity/Runtime/Export/Debug/Debug.bindings.cs Line: 130)
+
+[Physics::Module] Cleanup current backend.
+[Physics::Module] Id: 0xf2b8ea05
+Input System module state changed to: ShutdownInProgress.
+Input Polling Thread exited.
+Input System module state changed to: Shutdown.
+CodeReloadManager destroyed
+PlayerConnection::Cleanup[d3d12] Unreleased evictable resource 0000027B25FB4410 (size 8847360 B, lastUsedFence 11227) 'Proxy-BackBuffer-1920-1080'
+##utp:{"type":"MemoryLeaks","version":2,"phase":"Immediate","time":1795464666158,"processId":37880,"allocatedMemory":565676,"memoryLabels":[{"Default":5368},{"Thread":7696},{"Manager":533655},{"GfxDevice":2616},{"Audio":544},{"Serialization":616},{"Input":2440},{"String":1577},{"PoolAlloc":288},{"ScriptManager":5696},{"CodeReload":440},{"CloudService":288},{"WebRequest":3864},{"VR":1928},{"Video":144},{"NativeArray":372},{"Subsystems":96},{"CoreBusinessMetrics":128}]}

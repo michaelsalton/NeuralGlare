@@ -17,6 +17,11 @@ full-resolution level; its output (the frame the engine shows) then decides, and
 family sums are reported as diagnostics. The layout is the one train_points.py wrote next to the
 weight file (glare_params<tag>.json, with the image the rays are streaked from, spikeSource),
 checked against glare.slang; older weights without one get it built here (rays from mip 0).
+Weights with the per-ray cross filter (decision log 2026-11-19) carry it after the spike section
+(crossParamCount in the layout), and both sides run it on every ray. export --mips (default
+train_points.MIPS, 1) is the pyramid's mip count the weights were trained with (the run's
+_mips<n>); it goes into UNITY_LAYOUT as `mips`, and compare and ParityHarness both read it there
+(layouts without it are LEGACY_MIPS, Phase 1's 6).
 
 Images cross as raw little-endian float32 RGBA, row 0 = texel y = 0, no header: no EXR codec,
 no texture importer, no y flip. (Unity's textures are bottom-up in UV space, so an imported EXR
@@ -39,23 +44,32 @@ from pathlib import Path
 import numpy as np
 import slangpy as spy
 import torch
-from train_levels import OUT_DIR, ROOT, VIEWS, engine_layout, environment, level_mlp, spike_layout
+from train_levels import (
+    OUT_DIR,
+    ROOT,
+    VIEWS,
+    bright_mlp,
+    engine_layout,
+    environment,
+    level_mlp,
+    ray_mlp,
+    spike_layout,
+)
 from train_pyramid import slang_mips
 
-from neuralglare.baselines.pyramid_bloom import URPBloomParams
 from neuralglare.io import read_hdr
 
 sys.path.insert(0, str(ROOT / "experiments" / "03_train_network"))
-from train_points import spikes  # the spike term's pass order, as training runs it
+# the spike term's pass order and the pyramid, as training runs them
+from train_points import MIPS, pyramid, spikes
 
 PARITY_DIR = OUT_DIR / "unity_parity"
-WEIGHTS = (ROOT / "outputs" / "03_train_network" / "default" / "spikes_full" / "export" /
-           "glare_params_spikes_full_abs_fitted_lr0.0001.bytes")   # current best (2026-11-05); the
-                                                              # 2-tap baseline no longer runs on glare.slang
+WEIGHTS = (ROOT / "outputs" / "03_train_network" / "default" / "ray_cross" / "export" /
+           "glare_params_cross_abs_fitted_lr0.001_ee0.02_mips1.bytes")   # current best (2026-11-19)
 UNITY_WEIGHTS = (ROOT / "engines" / "unity" / "NeuralGlareURP" / "Assets" / "NeuralGlare" /
                  "Data" / "glare_params.bytes")              # ParityHarness.WeightsPath
 UNITY_LAYOUT = UNITY_WEIGHTS.with_suffix(".json")             # ParityHarness.LayoutPath
-P = URPBloomParams(threshold=0.0, clamp_max=np.inf, max_iterations=6)  # as train_pyramid.py
+LEGACY_MIPS = 6         # layouts written before the mip count was recorded (Phase 1, runs before 2026-11-10)
 RTOL = 1e-4             # test_glare_chain.py's Slang-vs-NumPy tolerance (float32 vs float64)
 ATOL_REL = 1e-7         # ~float32 ulp of the brightest texel, inherited by dark neighbours
 
@@ -67,12 +81,20 @@ def load_module():
 
 
 def levels_of(module, n_weights):
-    """(LevelMLP networks, has the spike section) of a weight file of n_weights floats."""
-    count, extra = level_mlp(module).param_count, spike_layout(module).param_count
-    fits = [spikes for spikes in (False, True)
-            if n_weights > spikes * extra and (n_weights - spikes * extra) % count == 0]
-    assert len(fits) == 1, f"{n_weights} weights: not whole levels of {count} (+ {extra} spikes)"
-    return (n_weights - fits[0] * extra) // count, fits[0]
+    """(LevelMLP networks, has the spike section, has the cross filter, has per-ray brightness) of
+    a weight file of n_weights floats."""
+    count = level_mlp(module).param_count
+    spike, cross = spike_layout(module).param_count, ray_mlp(module).param_count
+    bright = bright_mlp(module).param_count
+    fits = []
+    for s, c, b in ((False, False, False), (True, False, False), (True, True, False),
+                    (True, True, True)):
+        extra = s * spike + c * cross + b * bright
+        if n_weights > extra and (n_weights - extra) % count == 0:
+            fits.append(((n_weights - extra) // count, s, c, b))
+    assert len(fits) == 1, (f"{n_weights} weights: not whole levels of {count} "
+                            f"(+ {spike} spikes, + {cross} cross, + {bright} brightness)")
+    return fits[0]
 
 
 def frames():
@@ -91,13 +113,13 @@ def read_rgba(path, h, w):
     return data.reshape(h, w, 4)[..., :3]
 
 
-def python_pyramid(module, img, params, source="mip0"):
-    """Every mip and every upsample level (ups[n] = mips[n]), as numpy arrays, the
-    full-resolution level's output if the weights have one (None otherwise), and the spike term's
-    {"even", "odd", "spikes"} if they have it (empty otherwise)."""
-    mips = slang_mips(module, img, P)
+def python_pyramid(module, img, params, source="mip0", mips_count=MIPS):
+    """Every mip and every upsample level (ups[n] = mips[n]) of a mips_count-mip pyramid, as numpy
+    arrays, the full-resolution level's output if the weights have one (None otherwise), and the
+    spike term's {"even", "odd", "spikes"} if they have it (empty otherwise)."""
+    mips = slang_mips(module, img, pyramid(mips_count))
     n = len(mips) - 1
-    levels, has_spikes = levels_of(module, params.numel())
+    levels, has_spikes, has_cross, has_bright = levels_of(module, params.numel())
     assert levels in (n, n + 1), f"{levels} levels of weights, the pyramid has {n} (+ 1)"
 
     def level(mip, low, k):
@@ -117,7 +139,8 @@ def python_pyramid(module, img, params, source="mip0"):
         if has_spikes:
             rays_from = {"mip0": mips[0], "input": src}[source]
             out, (even, odd) = spikes(module, rays_from, full, params,
-                                      levels * level_mlp(module).param_count, families=True)
+                                      levels * level_mlp(module).param_count, families=True,
+                                      cross=has_cross, bright=has_bright)
             spike_levels = {"even": even.cpu().numpy(), "odd": odd.cpu().numpy(),
                             "spikes": out.cpu().numpy()}
         full = full.cpu().numpy()
@@ -134,18 +157,21 @@ def stats(unity, python):
             "energy_ratio_minus_1": (unity.sum((0, 1)) / python.sum((0, 1)) - 1).tolist()}
 
 
-def export(weights):
+def export(weights, mips):
     PARITY_DIR.mkdir(parents=True, exist_ok=True)
     _, module = load_module()
     net, lay = level_mlp(module), spike_layout(module)
-    levels, has_spikes = levels_of(module, Path(weights).stat().st_size // 4)
+    levels, has_spikes, has_cross, has_bright = levels_of(module, Path(weights).stat().st_size // 4)
     sidecar = Path(weights).with_suffix(".json")
     if sidecar.exists():                    # written by train_points.py; must match glare.slang
         layout = json.loads(sidecar.read_text())
-        assert layout == engine_layout(module, levels, has_spikes, layout["spikeSource"] or None), (
+        assert layout == engine_layout(module, levels, has_spikes, layout["spikeSource"] or None,
+                                       has_cross, has_bright), (
             f"{sidecar} doesn't match glare.slang and the weight file")
     else:                                   # weights from before the layout file: rays from mip 0
-        layout = engine_layout(module, levels, has_spikes, "mip0" if has_spikes else None)
+        layout = engine_layout(module, levels, has_spikes, "mip0" if has_spikes else None,
+                               has_cross, has_bright)
+    layout["mips"] = mips                   # Unity's pyramid (ParityHarness MipSizes); the copy only
     shutil.copyfile(weights, UNITY_WEIGHTS)
     UNITY_LAYOUT.write_text(json.dumps(layout, indent=2))
     manifest = []
@@ -159,10 +185,12 @@ def export(weights):
     print(f"wrote {len(manifest)} frames to {PARITY_DIR}; copied {weights} to {UNITY_WEIGHTS} "
           f"({levels} levels of {net.param_count}"
           f"{f' + {lay.param_count} spike, rays from ' + layout['spikeSource'] if has_spikes else ''}"
-          f") and its layout to {UNITY_LAYOUT.name}")
+          f"{f' + {ray_mlp(module).param_count} cross' if has_cross else ''}"
+          f"{f' + {bright_mlp(module).param_count} brightness' if has_bright else ''}"
+          f", {mips} mips) and its layout to {UNITY_LAYOUT.name}")
 
 
-def compare(_weights=None):
+def compare(_weights=None, _mips=None):
     device, module = load_module()
     layout = json.loads(UNITY_LAYOUT.read_text())
     assert layout["paramCount"] == level_mlp(module).param_count, (
@@ -171,13 +199,15 @@ def compare(_weights=None):
     # Read the engine weight file Unity loaded, not the .npy, so the shared format is tested too
     params = torch.from_numpy(np.fromfile(UNITY_WEIGHTS, "<f4")).cuda()
     source = json.loads((PARITY_DIR / "frames.json").read_text())["weights"]
+    mips_count = layout.get("mips", LEGACY_MIPS)
 
     results, passed = {}, True
     with torch.no_grad():
         for name in frames():
             img = read_hdr(str(ROOT / "data" / "inputs" / f"{name}.exr"))[..., :3]
             mips, ups, full, spike_levels = python_pyramid(module, img, params,
-                                                           layout.get("spikeSource") or "mip0")
+                                                           layout.get("spikeSource") or "mip0",
+                                                           mips_count)
             levels = {}
             for kind, arrays in (("mip", mips), ("up", ups[:-1])):
                 for k, ref in enumerate(arrays):
@@ -211,5 +241,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=("export", "compare"))
     ap.add_argument("--weights", default=WEIGHTS, help="export: engine weight file to run")
+    ap.add_argument("--mips", type=int, default=MIPS,
+                    help="export: the pyramid's mip count the weights were trained with (the "
+                         "run's _mips<n>; 6 for runs before 2026-11-10)")
     args = ap.parse_args()
-    {"export": export, "compare": compare}[args.mode](args.weights)
+    {"export": export, "compare": compare}[args.mode](args.weights, args.mips)

@@ -1,13 +1,17 @@
 {
   "inputs": 2,
   "hidden": 16,
-  "outputs": 4,
-  "paramCount": 116,
-  "levels": 6,
-  "spikeParamCount": 99,
+  "outputs": 18,
+  "paramCount": 354,
+  "levels": 1,
+  "spikeParamCount": 201,
   "profileCount": 24,
   "rays": 14,
   "passes": 3,
   "spikeSource": "input",
-  "source": "slang/glare.slang LevelMLP and SpikeMLP"
+  "source": "slang/glare.slang LevelMLP, SpikeMLP, RayMLP and BrightMLP",
+  "crossParamCount": 59,
+  "crossTaps": 3,
+  "brightParamCount": 41,
+  "mips": 1
 }

@@ -1,0 +1,86 @@
+{
+    "unityVersion": "6000.6.7f1",
+    "graphicsDeviceType": "Direct3D12",
+    "graphicsDeviceName": "NVIDIA GeForce RTX 2070",
+    "graphicsDeviceVersion": "Direct3D 12 [level 12.2]",
+    "date": "2026-11-23 13:37:09",
+    "developmentBuild": true,
+    "screenWidth": 2560,
+    "screenHeight": 1440,
+    "glareWidth": 2560,
+    "glareHeight": 1440,
+    "warmupSeconds": 10.0,
+    "windowSeconds": 2.0,
+    "markers": [
+        {
+            "name": "NeuralGlare",
+            "medianMs": 28.57574462890625,
+            "minMs": 28.574337005615234,
+            "maxMs": 28.581119537353516,
+            "windowMedianMs": [
+                28.574337005615234,
+                28.57574462890625,
+                28.575231552124023,
+                28.580608367919922,
+                28.581119537353516
+            ],
+            "frames": 344
+        },
+        {
+            "name": "NeuralGlare.Pyramid",
+            "medianMs": 0.06323199719190598,
+            "minMs": 0.06297600269317627,
+            "maxMs": 0.06656000018119812,
+            "windowMedianMs": [
+                0.06297600269317627,
+                0.06323199719190598,
+                0.06323199719190598,
+                0.06630399823188782,
+                0.06656000018119812
+            ],
+            "frames": 344
+        },
+        {
+            "name": "NeuralGlare.Levels",
+            "medianMs": 2.782975912094116,
+            "minMs": 2.7827200889587402,
+            "maxMs": 2.7832319736480713,
+            "windowMedianMs": [
+                2.7827200889587402,
+                2.782975912094116,
+                2.7827200889587402,
+                2.7832319736480713,
+                2.782975912094116
+            ],
+            "frames": 344
+        },
+        {
+            "name": "NeuralGlare.Rays",
+            "medianMs": 24.65996742248535,
+            "minMs": 24.65920066833496,
+            "maxMs": 24.6615047454834,
+            "windowMedianMs": [
+                24.659584045410156,
+                24.65920066833496,
+                24.65996742248535,
+                24.65996742248535,
+                24.6615047454834
+            ],
+            "frames": 344
+        },
+        {
+            "name": "NeuralGlare.Composite",
+            "medianMs": 1.0693119764328003,
+            "minMs": 1.0690560340881348,
+            "maxMs": 1.0693119764328003,
+            "windowMedianMs": [
+                1.0693119764328003,
+                1.0693119764328003,
+                1.0690560340881348,
+                1.0693119764328003,
+                1.0693119764328003
+            ],
+            "frames": 344
+        }
+    ]
+}

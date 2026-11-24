@@ -1,7 +1,8 @@
 {
   "deltas": {
     "baseline": 0.00014781405528385694,
-    "coma": 0.00021827022234599536
+    "coma": 0.00021827022234599536,
+    "spikes_full": 0.003082853804032011
   },
   "seed_val_flip": {
     "baseline": [
@@ -13,6 +14,11 @@
       0.08110443900028864,
       0.080906875928243,
       0.081125146150589
+    ],
+    "spikes_full": [
+      0.05397905558347702,
+      0.054383933544158936,
+      0.051301079740126924
     ]
   },
   "gap": {
@@ -120,10 +126,230 @@
       "params": 819,
       "macs_per_texel_level": 96,
       "extra_cost": " + 2 bilinear taps, softmax, length(); spikes: 168 fetches per full-res texel, 80 MACs + 2 fetches per full-res texel",
-      "decision": "kept, current best (decision log 2026-11-05)",
+      "decision": "kept, current best 2026-11-05, superseded 2026-11-10",
       "val_diff": -0.014967276652654009,
       "delta": "coma",
       "val_diff_delta": -68.57223349930132,
+      "criterion": "kept"
+    },
+    {
+      "label": "Per-channel weights: one softmax per colour channel",
+      "study": "per_channel",
+      "tag": "_per_channel_abs_fitted_lr0.0001",
+      "against": "spikes_full",
+      "val_flip": 0.0517891729871432,
+      "test_flip": {
+        "centre": 0.04466705024242401,
+        "mid": 0.04973182454705238,
+        "edge": 0.07563385739922523
+      },
+      "edge_over_centre": 1.693280773830672,
+      "gap_closed": 0.7755393575449993,
+      "params": 1737,
+      "macs_per_texel_level": 224,
+      "extra_cost": " + 2 bilinear taps, 3 softmaxes, length(); spikes: 168 fetches per full-res texel, 176 MACs + 2 fetches per full-res texel",
+      "decision": "no result row of its own; the base of mip_levels, which reports it at -10.0\u03b4_coma vs spikes_full (decision log 2026-11-10)",
+      "val_diff": -0.0021898825963338198,
+      "delta": "spikes_full",
+      "val_diff_delta": -0.7103426680401485,
+      "criterion": "inconclusive: run seeds 1, 2"
+    },
+    {
+      "label": "2 mips instead of 6",
+      "study": "mip_levels",
+      "tag": "_per_channel_abs_fitted_lr0.0001_mips2",
+      "against": "per_channel",
+      "val_flip": 0.05107534602284432,
+      "test_flip": {
+        "centre": 0.042995523661375046,
+        "mid": 0.04951827973127365,
+        "edge": 0.07535349950194359
+      },
+      "edge_over_centre": 1.7525894112934661,
+      "gap_closed": 0.7818614708032162,
+      "params": 729,
+      "macs_per_texel_level": 224,
+      "extra_cost": " + 2 bilinear taps, 3 softmaxes, length(); spikes: 168 fetches per full-res texel, 176 MACs + 2 fetches per full-res texel",
+      "decision": "kept over 6 mips, superseded by 1 mip (decision log 2026-11-10)",
+      "val_diff": -0.0007138269642988845,
+      "delta": "coma",
+      "val_diff_delta": -3.27038180758962,
+      "criterion": "kept"
+    },
+    {
+      "label": "1 mip: the full-resolution level only",
+      "study": "mip_levels",
+      "tag": "_per_channel_abs_fitted_lr0.0001_mips1",
+      "against": "per_channel",
+      "val_flip": 0.046031808108091356,
+      "test_flip": {
+        "centre": 0.03582838550209999,
+        "mid": 0.04350466653704643,
+        "edge": 0.07448197528719902
+      },
+      "edge_over_centre": 2.0788537982777218,
+      "gap_closed": 0.8015144745042625,
+      "params": 477,
+      "macs_per_texel_level": 224,
+      "extra_cost": " + 2 bilinear taps, 3 softmaxes, length(); spikes: 168 fetches per full-res texel, 176 MACs + 2 fetches per full-res texel",
+      "decision": "kept, current best 2026-11-10, superseded 2026-11-13",
+      "val_diff": -0.005757364879051846,
+      "delta": "coma",
+      "val_diff_delta": -26.37723468263777,
+      "criterion": "kept"
+    },
+    {
+      "label": "Tent upsample: the low tap is a 3x3 tent, not bilinear",
+      "study": "tent_upsample",
+      "tag": "_per_channel_abs_fitted_lr0.0001_mips1",
+      "against": "mips1",
+      "val_flip": 0.04532693028450012,
+      "test_flip": {
+        "centre": 0.03506316617131233,
+        "mid": 0.042976824566721916,
+        "edge": 0.07335661724209785
+      },
+      "edge_over_centre": 2.0921275872147596,
+      "gap_closed": 0.8268914697170203,
+      "params": 477,
+      "macs_per_texel_level": 224,
+      "extra_cost": " + 2 bilinear taps, 9-tap tent low fetch, 3 softmaxes, length(); spikes: 168 fetches per full-res texel, 176 MACs + 2 fetches per full-res texel",
+      "decision": "kept 2026-11-13, superseded the same day by lr 1e-3",
+      "val_diff": -0.0007048778235912365,
+      "delta": "coma",
+      "val_diff_delta": -3.229381525409753,
+      "criterion": "kept"
+    },
+    {
+      "label": "Learning rate 1e-3 (was 1e-4)",
+      "study": "tent_upsample",
+      "tag": "_per_channel_abs_fitted_lr0.001_mips1",
+      "against": "tent",
+      "val_flip": 0.0447639025747776,
+      "test_flip": {
+        "centre": 0.03379422426223755,
+        "mid": 0.04299619421362877,
+        "edge": 0.0724327303469181
+      },
+      "edge_over_centre": 2.143346442423184,
+      "gap_closed": 0.8477252598322352,
+      "params": 477,
+      "macs_per_texel_level": 224,
+      "extra_cost": " + 2 bilinear taps, 9-tap tent low fetch, 3 softmaxes, length(); spikes: 168 fetches per full-res texel, 176 MACs + 2 fetches per full-res texel",
+      "decision": "kept, current best 2026-11-13; lr 1e-3 becomes the default",
+      "val_diff": -0.0005630277097225175,
+      "delta": "coma",
+      "val_diff_delta": -2.5794984935234226,
+      "criterion": "kept"
+    },
+    {
+      "label": "Fifth tap: the own-mip 3x3 tent",
+      "study": "shoulder_tap",
+      "tag": "_shoulder_abs_fitted_lr0.001_mips1",
+      "against": "tent_lr1e-3",
+      "val_flip": 0.04468656405806541,
+      "test_flip": {
+        "centre": 0.033598653972148895,
+        "mid": 0.04297399893403053,
+        "edge": 0.07215410098433495
+      },
+      "edge_over_centre": 2.147529512466363,
+      "gap_closed": 0.8540083943698934,
+      "params": 528,
+      "macs_per_texel_level": 272,
+      "extra_cost": " + 2 bilinear taps, tent low fetch, +9 fetches (own tent), 3 softmaxes, length(); spikes as above",
+      "decision": "no result row in the decision log; core_loss and wide_core build on it",
+      "val_diff": -7.733851671219011e-05,
+      "delta": "coma",
+      "val_diff_delta": -0.3543246343039658,
+      "criterion": "inconclusive: run seeds 1, 2"
+    },
+    {
+      "label": "Core loss: + 0.02 x encircled energy by ring (training only)",
+      "study": "core_loss",
+      "tag": "_shoulder_abs_fitted_lr0.001_ee0.02_mips1",
+      "against": "shoulder_tap",
+      "val_flip": 0.044831482817729314,
+      "test_flip": {
+        "centre": 0.03370498865842819,
+        "mid": 0.04308304935693741,
+        "edge": 0.07234369590878487
+      },
+      "edge_over_centre": 2.1463794764011817,
+      "gap_closed": 0.8497329999644655,
+      "params": 528,
+      "macs_per_texel_level": 272,
+      "extra_cost": " (no runtime cost: a loss term)",
+      "decision": "no result row in the decision log; \u03bb = 0.02 used from wide_core on",
+      "val_diff": 0.00014491875966390205,
+      "delta": "coma",
+      "val_diff_delta": 0.6639419619694217,
+      "criterion": "inconclusive: run seeds 1, 2"
+    },
+    {
+      "label": "Sixth tap: the own-mip 5x5 binomial",
+      "study": "wide_core",
+      "tag": "_wide_abs_fitted_lr0.001_ee0.02_mips1",
+      "against": "shoulder_tap",
+      "val_flip": 0.044622947772343956,
+      "test_flip": {
+        "centre": 0.034113287925720215,
+        "mid": 0.04348134808242321,
+        "edge": 0.07186472788453102
+      },
+      "edge_over_centre": 2.106649116936851,
+      "gap_closed": 0.8605338018172316,
+      "params": 579,
+      "macs_per_texel_level": 320,
+      "extra_cost": " + 2 bilinear taps, tent low fetch, +18 fetches (own tent, binomial), 3 softmaxes, length(); spikes as above",
+      "decision": "kept by its own rule (core loss < 0.6, FLIP within \u03b4/\u221a3), current best 2026-11-17, superseded 2026-11-19",
+      "val_diff": -6.361628572145589e-05,
+      "delta": "coma",
+      "val_diff_delta": -0.29145654884894595,
+      "criterion": "inconclusive: run seeds 1, 2"
+    },
+    {
+      "label": "Per-ray cross filter: 3 taps across each ray, softmax(RayMLP)",
+      "study": "ray_cross",
+      "tag": "_cross_abs_fitted_lr0.001_ee0.02_mips1",
+      "against": "wide_core",
+      "val_flip": 0.0412075816343228,
+      "test_flip": {
+        "centre": 0.03159843012690544,
+        "mid": 0.03755641356110573,
+        "edge": 0.06783975288271904
+      },
+      "edge_over_centre": 2.1469342815532735,
+      "gap_closed": 0.9512976007673432,
+      "params": 638,
+      "macs_per_texel_level": 320,
+      "extra_cost": " as wide_core; rays: +14 dispatches, +42 fetches and 14 RayMLP<3, 8, 3> per full-res texel",
+      "decision": "kept, current best 2026-11-19, superseded 2026-11-23",
+      "val_diff": -0.003415366138021153,
+      "delta": "coma",
+      "val_diff_delta": -15.647421353734721,
+      "criterion": "kept"
+    },
+    {
+      "label": "Per-ray brightness: 7 softmax(BrightMLP) per family",
+      "study": "ray_bright",
+      "tag": "_bright_abs_fitted_lr0.001_ee0.02_mips1",
+      "against": "ray_cross",
+      "val_flip": 0.040928077946106596,
+      "test_flip": {
+        "centre": 0.03165483474731445,
+        "mid": 0.03840623050928116,
+        "edge": 0.06592873111367226
+      },
+      "edge_over_centre": 2.0827381232582662,
+      "gap_closed": 0.9943914325444259,
+      "params": 679,
+      "macs_per_texel_level": 320,
+      "extra_cost": " as ray_cross; rays: + 28 BrightMLP<3, 8, 1> per full-res texel, no new fetches",
+      "decision": "kept, current best (decision log 2026-11-23)",
+      "val_diff": -0.00027950368821620664,
+      "delta": "coma",
+      "val_diff_delta": -1.280539714543131,
       "criterion": "kept"
     }
   ],
@@ -337,6 +563,279 @@
         "n": 14
       },
       "edge_over_centre_flip": 3.4866933968636133
+    },
+    "sym_core": {
+      "centre": {
+        "flip": 0.0005927101010456681,
+        "log_mse": 0.0007036749739199877,
+        "energy": 0.013717122921876213,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.0009330056491307914,
+        "log_mse": 0.0017757200985215604,
+        "energy": 0.052661846945741164,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.0013107240665704012,
+        "log_mse": 0.0029189869528636336,
+        "energy": -0.09776931774398945,
+        "n": 14
+      },
+      "edge_over_centre_flip": 2.2114083499808794
+    },
+    "sym_rays": {
+      "centre": {
+        "flip": 0.016540301963686943,
+        "log_mse": 0.002632217016071081,
+        "energy": 4.4824471503668306e-05,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.03389777988195419,
+        "log_mse": 0.015483882743865252,
+        "energy": -0.00017959514789755993,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.051046425476670265,
+        "log_mse": 0.02794224303215742,
+        "energy": -0.001233047620856964,
+        "n": 14
+      },
+      "edge_over_centre_flip": 3.0861846167463605
+    },
+    "sym_glow": {
+      "centre": {
+        "flip": 0.004787180107086897,
+        "log_mse": 0.0001974475453607738,
+        "energy": -9.624861112111915e-06,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.0064853026997298,
+        "log_mse": 0.0003033411194337532,
+        "energy": -1.1695256076083016e-05,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.031693071126937866,
+        "log_mse": 0.010974429082125425,
+        "energy": -0.00016442966122559577,
+        "n": 14
+      },
+      "edge_over_centre_flip": 6.620405002105465
+    },
+    "sym_not_core": {
+      "centre": {
+        "flip": 0.020365620031952858,
+        "log_mse": 0.0028296641539782286,
+        "energy": 3.5215269513333425e-05,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.038156088441610336,
+        "log_mse": 0.015803470741957426,
+        "energy": -0.00019186930984332884,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.07176002860069275,
+        "log_mse": 0.038140565156936646,
+        "energy": -0.0014307880170752463,
+        "n": 14
+      },
+      "edge_over_centre_flip": 3.5235867352972354
+    },
+    "sym_not_rays": {
+      "centre": {
+        "flip": 0.005323673132807016,
+        "log_mse": 0.0009011225192807615,
+        "energy": 0.01370751371938983,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.007300583180040121,
+        "log_mse": 0.0020726852817460895,
+        "energy": 0.05265021711995865,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.03265242092311382,
+        "log_mse": 0.013770981226116419,
+        "energy": -0.09797041960980574,
+        "n": 14
+      },
+      "edge_over_centre_flip": 6.133438343893432
+    },
+    "sym_not_glow": {
+      "centre": {
+        "flip": 0.016899453476071358,
+        "log_mse": 0.003335891989991069,
+        "energy": 0.013761958745175829,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.034315016120672226,
+        "log_mse": 0.017283611930906773,
+        "energy": 0.05246511323494629,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.051564961671829224,
+        "log_mse": 0.03082080092281103,
+        "energy": -0.09925038833569344,
+        "n": 14
+      },
+      "edge_over_centre_flip": 3.051279838418574
+    },
+    "sym_rays_w3": {
+      "centre": {
+        "flip": 0.017112215980887413,
+        "log_mse": 0.0026809300761669874,
+        "energy": 4.3399378790276444e-05,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.03494097664952278,
+        "log_mse": 0.01564541831612587,
+        "energy": -0.00018327270924545225,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.05455009639263153,
+        "log_mse": 0.03332578204572201,
+        "energy": -0.0013330806444374343,
+        "n": 14
+      },
+      "edge_over_centre_flip": 3.1877868099349835
+    },
+    "sym_glow_w3": {
+      "centre": {
+        "flip": 0.0038077672943472862,
+        "log_mse": 0.00014873416512273252,
+        "energy": -8.167569181982692e-06,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.0041898395866155624,
+        "log_mse": 0.00016017448069760576,
+        "energy": -8.285384293149622e-06,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.02183602098375559,
+        "log_mse": 0.005194891011342406,
+        "energy": -8.591579750061307e-05,
+        "n": 14
+      },
+      "edge_over_centre_flip": 5.734599647455252
+    },
+    "sym_annulus": {
+      "centre": {
+        "flip": 0.0005090701160952449,
+        "log_mse": 0.00025665847351774573,
+        "energy": 6.026967674199746e-05,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.001169104827567935,
+        "log_mse": 0.0014894627965986729,
+        "energy": -7.662830858290448e-06,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.0022642872063443065,
+        "log_mse": 0.003190831746906042,
+        "energy": -0.0006254564235089743,
+        "n": 14
+      },
+      "edge_over_centre_flip": 4.447888679288862
+    },
+    "sym_rays_far": {
+      "centre": {
+        "flip": 0.016253599897027016,
+        "log_mse": 0.0023755584843456745,
+        "energy": -1.5456563390192635e-05,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.033280955627560616,
+        "log_mse": 0.013761389534920454,
+        "energy": -0.00016757366935321594,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.049838580191135406,
+        "log_mse": 0.02467800211161375,
+        "energy": -0.0006307652509970896,
+        "n": 14
+      },
+      "edge_over_centre_flip": 3.066310263995824
+    },
+    "sym_glow_far": {
+      "centre": {
+        "flip": 0.004787180107086897,
+        "log_mse": 0.0001974475453607738,
+        "energy": -9.624861112111915e-06,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.0064853026997298,
+        "log_mse": 0.0003033411194337532,
+        "energy": -1.1695256076083016e-05,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.031693071126937866,
+        "log_mse": 0.010974429082125425,
+        "energy": -0.00016442966122559577,
+        "n": 14
+      },
+      "edge_over_centre_flip": 6.620405002105465
+    },
+    "rays_far_bright": {
+      "centre": {
+        "flip": 0.01558749470859766,
+        "log_mse": 0.002256629755720496,
+        "energy": -1.1355584805805563e-08,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.03045881725847721,
+        "log_mse": 0.013226608745753765,
+        "energy": 1.486347711576741e-09,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.03964999131858349,
+        "log_mse": 0.021705918945372105,
+        "energy": -2.077397975863704e-09,
+        "n": 14
+      },
+      "edge_over_centre_flip": 2.543705198290369
+    },
+    "rays_far_profile": {
+      "centre": {
+        "flip": 0.01391366682946682,
+        "log_mse": 0.0021979829762130976,
+        "energy": -1.1356596218980997e-08,
+        "n": 5
+      },
+      "mid": {
+        "flip": 0.027870063669979572,
+        "log_mse": 0.01310343062505126,
+        "energy": 1.4848946516821115e-09,
+        "n": 16
+      },
+      "edge": {
+        "flip": 0.037001825869083405,
+        "log_mse": 0.021178516559302807,
+        "energy": -2.0782504606131624e-09,
+        "n": 14
+      },
+      "edge_over_centre_flip": 2.6593870848423453
     }
   }
 }

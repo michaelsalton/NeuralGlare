@@ -16,5 +16,5 @@
       "height": 1080
     }
   ],
-  "weights": "outputs/03_train_network/default/spikes/export/glare_params_spikes_abs_fitted_lr0.0001.bytes"
+  "weights": "outputs/03_train_network/default/ray_bright/export/glare_params_bright_abs_fitted_lr0.001_ee0.02_mips1.bytes"
 }

@@ -16,6 +16,7 @@ Writes outputs/03_train_network/<run>/<study>/report/views/:
     4_radial_profile.png  mean luminance in rings around the source
     5_loss_curves.png     training and validation loss per run
     6_blend_maps.png      each level's learned blend t over the screen
+    7_light_per_path.png  the output split by the image its light enters from (input, mips)
 """
 
 import argparse
@@ -65,16 +66,59 @@ STUDY_RUNS = {
         ("spikes_full", "_spikes_full_abs_fitted_lr0.0001", "Spikes (full resolution)"),
         ("per_channel", "_per_channel_abs_fitted_lr0.0001", "Per-channel weights"),
     ],
+    "mip_levels": [
+        ("per_channel", "_per_channel_abs_fitted_lr0.0001", "6 mips (per-channel)"),
+        ("mip_levels", "_per_channel_abs_fitted_lr0.0001_mips2", "2 mips"),
+        ("mip_levels", "_per_channel_abs_fitted_lr0.0001_mips1", "1 mip"),
+        ("mip_levels", "_per_channel_abs_fitted_lr0.0001_mips0", "0 mips"),
+    ],
+    "tent_upsample": [                  # decision log 2026-11-12: bilinear 2 mips vs the tent
+        ("mip_levels", "_per_channel_abs_fitted_lr0.0001_mips2", "2 mips, bilinear"),
+        ("tent_upsample", "_per_channel_abs_fitted_lr0.0001_mips2", "2 mips, tent"),
+        ("tent_upsample", "_per_channel_abs_fitted_lr0.0001_tlow0.05_mips2", "2 mips, tent, t_low 0.05"),
+        ("tent_upsample", "_per_channel_abs_fitted_lr0.0001_mips1", "1 mip, tent"),
+        ("tent_upsample", "_per_channel_abs_fitted_lr0.0001_mips0", "0 mips, tent"),
+        ("tent_upsample", "_per_channel_abs_fitted_lr0.001_mips1", "1 mip, tent, lr 1e-3"),
+    ],
+    "shoulder_tap": [                   # decision log 2026-11-13: the fifth tap, own-mip tent
+        ("tent_upsample", "_per_channel_abs_fitted_lr0.001_mips1", "4 taps (1 mip, tent, lr 1e-3)"),
+        ("shoulder_tap", "_shoulder_abs_fitted_lr0.001_mips1", "5 taps, tent share 0.85"),
+        ("shoulder_tap", "_shoulder_abs_fitted_lr0.001_tshare0.01_mips1", "5 taps, tent share 0.01"),
+    ],
+    "core_loss": [                      # decision log 2026-11-16: the core (encircled-energy) loss
+        ("shoulder_tap", "_shoulder_abs_fitted_lr0.001_mips1", "5 taps, log loss (shoulder_tap)"),
+        ("core_loss", "_shoulder_abs_fitted_lr0.001_ee0.02_mips1", "5 taps, + 0.02 x core loss"),
+        ("core_loss", "_shoulder_abs_fitted_lr0.001_ee0.2_mips1", "5 taps, + 0.2 x core loss"),
+    ],
+    "wide_core": [                      # decision log 2026-11-16: the sixth tap, own-mip binomial
+        ("core_loss", "_shoulder_abs_fitted_lr0.001_ee0.02_mips1", "5 taps, + 0.02 x core loss"),
+        ("wide_core", "_wide_abs_fitted_lr0.001_ee0.02_mips1", "6 taps, binomial share 0.15"),
+        ("wide_core", "_wide_abs_fitted_lr0.001_wshare0.01_ee0.02_mips1", "6 taps, binomial share 0.01"),
+    ],
+    "ray_cross": [                      # decision log 2026-11-19: the per-ray cross filter
+        ("wide_core", "_wide_abs_fitted_lr0.001_ee0.02_mips1", "6 taps (wide_core)"),
+        ("ray_cross", "_cross_abs_fitted_lr0.001_ee0.02_mips1", "+ per-ray cross filter"),
+    ],
+    "ray_bright": [                     # decision log 2026-11-19: per-ray brightness
+        ("ray_cross", "_cross_abs_fitted_lr0.001_ee0.02_mips1", "cross filter (ray_cross)"),
+        ("ray_bright", "_bright_abs_fitted_lr0.001_ee0.02_mips1", "+ per-ray brightness"),
+    ],
 }
 BASELINES = {"fft_centre": "Phase 0: FFT, centre PSF", "pyramid": "Phase 0: pyramid (fitted)"}
 EXPOSURE = 0.05                     # 1_look: Reinhard exposure, as the Step 1 views
 DECADES = 7                         # 2_log_luminance: range below the reference peak
 FLOOR = 1e-6                        # 4_radial_profile: luminance floor of the log axis
+HALO = (3, 20)                      # 7_light_per_path: the ring (px) whose gaps between the
+                                    # spikes the pyramid's halo shows up in
+PATH_TITLES = {"input": "core + rays\n(from the input frame)"}   # 7_light_per_path: a path is
+                                    # named by the image it reads; this one holds what the
+                                    # pass-through and the spike passes make of it
 
 # Reference palette of the dataviz guide: surface, ink, categorical slots in fixed order
 # (blue, orange, aqua, yellow) for the four compared models, diverging blue / grey / orange
 SURFACE, INK, MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300",   # + magenta, green
+          "#7a5195", "#8c564b"]   # + purple, brown: tent_upsample plots 8 series (2026-11-13)
 DIVERGING = LinearSegmentedColormap.from_list("too_dark_bright", ["#eb6834", "#f0efec", "#2a78d6"])
 BLUE_RAMP = LinearSegmentedColormap.from_list(
     "blue", ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"])
@@ -257,8 +301,17 @@ def fig_blend(runs, path):
     by the runs, so a row-to-row difference is a real one; the printed range shows how much
     a level varies at all. A level whose t varies by < CONSTANT relative is drawn flat: its
     variation is float noise (pass-through levels sit at t ~ 1e-4). Drawn 16:9 like the screen,
-    so a function of H shows as circles."""
-    n = runs[0]["views"]["blend"].shape[0]
+    so a function of H shows as circles. Runs with fewer mips (study mip_levels) line up by
+    level: the full-resolution level, always a run's last, goes in the last column."""
+    n = max(r["views"]["blend"].shape[0] for r in runs)
+
+    def level_at(r, c):
+        """Run r's level in column c, or None if it has no such level."""
+        m = r["views"]["blend"].shape[0]
+        if c == n - 1:
+            return m - 1
+        return c if c < m - 1 else None
+
     fig, axes = plt.subplots(len(runs), n, figsize=(2.3 * n + 0.6, 1.55 * len(runs) + 0.9),
                              squeeze=False)
     fig.suptitle("Learned blend t = sigmoid(MLP) per level over the screen (dark: more of the "
@@ -266,21 +319,105 @@ def fig_blend(runs, path):
     for ax in axes.flat:
         ax.set_xticks([])
         ax.set_yticks([])
-    for k in range(n):
-        lo = min(r["views"]["blend"][k].min() for r in runs)
-        hi = max(r["views"]["blend"][k].max() for r in runs)
+    for c in range(n):
+        ts = {i: r["views"]["blend"][k] for i, r in enumerate(runs)
+              if (k := level_at(r, c)) is not None}
+        lo = min(t.min() for t in ts.values())
+        hi = max(t.max() for t in ts.values())
         flat = hi - lo < CONSTANT * hi
-        for i, r in enumerate(runs):
-            t = r["views"]["blend"][k]
-            ax = axes[i, k]
+        for i in range(len(runs)):
+            ax = axes[i, c]
+            if i not in ts:
+                ax.axis("off")                      # this run has no such level
+                continue
+            t = ts[i]
             ax.imshow(np.zeros_like(t) if flat else t, cmap=BLUE_RAMP,
                       vmin=0 if flat else lo, vmax=1 if flat else hi, interpolation="nearest",
                       extent=(0, 16, 9, 0))
             ax.set_xlabel(f"t = {t.mean():.2g} (constant)" if flat else
                           f"t {t.min():.3g} – {t.max():.3g}", fontsize=7)
-        axes[0, k].set_title("full resolution" if k == n - 1 else f"level {k}", fontsize=8)
+        axes[0, c].set_title("full resolution" if c == n - 1 else f"level {c}", fontsize=8)
+    for i, r in enumerate(runs):                    # on the run's first panel: column 0 is off
+        c = next(c for c in range(n) if level_at(r, c) is not None)    # for 1 level
+        axes[i, c].set_ylabel(r["label"], fontsize=8)
+    fig.savefig(path, dpi=110, bbox_inches="tight")
+    plt.close(fig)
+
+
+CORE_TAPS = (("tent_rgb", "tent, +-1 px"), ("wide_rgb", "binomial, +-2 px"))
+
+
+def fig_core_taps(runs, path):
+    """The full-resolution level's own-mip tap weights over the screen, R, G, B, one row per run:
+    the core's +-1 px (tent, decision log 2026-11-13) and +-2 px (binomial, 2026-11-16) shoulders.
+    Range 0..1 for every panel, so runs and channels compare directly. Runs from before a tap
+    existed leave its panels empty."""
+    cols = [(key, name, c) for key, name in CORE_TAPS for c in range(3)]
+    fig, axes = plt.subplots(len(runs), len(cols), figsize=(1.9 * len(cols) + 0.6,
+                                                            1.2 * len(runs) + 0.9), squeeze=False)
+    fig.suptitle("Full-resolution own-mip tap weights over the screen (0 white .. 1 dark)",
+                 fontsize=11)
+    for ax in axes.flat:
+        ax.set_xticks([])
+        ax.set_yticks([])
+    for j, (key, name, c) in enumerate(cols):
+        axes[0, j].set_title(f"{name}: {'RGB'[c]}", fontsize=7)
+        for i, r in enumerate(runs):
+            ax = axes[i, j]
+            if key not in r["views"]:
+                for s in ax.spines.values():        # not axis("off"): keeps column 0's run label
+                    s.set_visible(False)
+                continue
+            t = r["views"][key][-1, c]              # the full-resolution level, a run's last
+            ax.imshow(t, cmap=BLUE_RAMP, vmin=0, vmax=1, interpolation="nearest",
+                      extent=(0, 16, 9, 0))
+            ax.set_xlabel(f"{t.min():.2f} – {t.max():.2f}", fontsize=7)
     for i, r in enumerate(runs):
-        axes[i, 0].set_ylabel(r["label"], fontsize=8)
+        axes[i, 0].set_ylabel(textwrap.fill(r["label"], 18), fontsize=7)
+    fig.savefig(path, dpi=110, bbox_inches="tight")
+    plt.close(fig)
+
+
+def fig_paths(runs, ref, hs, path):
+    """Each run's output split by the image its light enters from (train_points.path_outputs),
+    one row per run and view source, on 2_log_luminance's scale. Under each path: its share of
+    the model's light, and of the model's light in the gaps of the HALO ring (texels below the
+    ring's median in the reference, i.e. between the spikes). Runs saved before the split have
+    no `paths` and are left out. Path names run input, mip0, mip1, ..., so a run with fewer mips
+    has the first of the longest run's paths, and blank panels after them."""
+    runs = [r for r in runs if "paths" in r["views"]]
+    if not runs:
+        return
+    names = max(([str(n) for n in r["views"]["path_names"]] for r in runs), key=len)
+    vmax = max(log_lum(c).max() for c in ref)
+    yy, xx = np.mgrid[:VIEW_PX, :VIEW_PX] - VIEW_PX // 2
+    rad = np.hypot(yy, xx)
+    ring = (rad >= HALO[0]) & (rad <= HALO[1])
+    rows = [(r, i) for r in runs for i in range(len(hs))]
+    fig, axes = grid(len(rows), 2 + len(names), f"Light per path: which image a pixel's light "
+                     f"enters from (log luminance, {DECADES} decades)")
+    for row, (r, i) in enumerate(rows):
+        lr = luminance(ref[i])
+        gaps = ring & (lr < np.median(lr[ring]))
+        model = luminance(r["views"]["out"][i])
+        panels = [(ref[i], None), (r["views"]["out"][i], None)]
+        own = r["views"]["paths"]
+        panels += [(own[k, i] if k < len(own) else None, k) for k in range(len(names))]
+        for c, (crop, k) in enumerate(panels):
+            ax = axes[row, c]
+            if crop is None:
+                ax.axis("off")                      # this run has no such mip
+                continue
+            ax.imshow(log_lum(crop), cmap="magma", vmin=vmax - DECADES, vmax=vmax,
+                      interpolation="nearest")
+            if k is not None:
+                lum = luminance(crop)
+                ax.set_xlabel(f"light {lum.sum() / model.sum():.2%}\n"
+                              f"gaps {lum[gaps].sum() / model[gaps].sum():.1%}", fontsize=7)
+        axes[row, 0].set_ylabel(f"{textwrap.fill(r['label'], 18)}\nH = {hs[i]:.2f}", fontsize=8)
+    for ax, name in zip(axes[0], ["Reference (exact lens)", "Model (all paths)"]
+                        + [PATH_TITLES.get(n, n) for n in names]):
+        ax.set_title(name, fontsize=8)
     fig.savefig(path, dpi=110, bbox_inches="tight")
     plt.close(fig)
 
@@ -307,6 +444,8 @@ def main():
     fig_profile(columns, hs, out / "4_radial_profile.png")
     fig_loss(runs, out / "5_loss_curves.png")
     fig_blend(runs, out / "6_blend_maps.png")
+    fig_paths(runs, crops["reference"], hs, out / "7_light_per_path.png")
+    fig_core_taps(runs, out / "8_core_taps.png")
     print(f"wrote {out}")
 
 

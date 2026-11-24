@@ -10,11 +10,11 @@
   },
   "unity": {
     "unityVersion": "6000.6.7f1",
-    "graphicsDeviceType": "Direct3D11",
+    "graphicsDeviceType": "Direct3D12",
     "graphicsDeviceName": "NVIDIA GeForce RTX 2070",
-    "graphicsDeviceVersion": "Direct3D 11.0 [level 11.1]"
+    "graphicsDeviceVersion": "Direct3D 12 [level 12.2]"
   },
-  "weights": "outputs/03_train_network/default/spikes/export/glare_params_spikes_abs_fitted_lr0.0001.bytes",
+  "weights": "outputs/03_train_network/default/ray_bright/export/glare_params_bright_abs_fitted_lr0.001_ee0.02_mips1.bytes",
   "criteria": {
     "rtol": 0.0001,
     "atol_rel": 1e-07
@@ -34,99 +34,9 @@
             0.0
           ]
         },
-        "mip1": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip2": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip3": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip4": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip5": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up0": {
-          "max_bound_ratio": 1.4290138096839655e-05,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up1": {
-          "max_bound_ratio": 2.1672429284080863e-05,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up2": {
-          "max_bound_ratio": 3.931534229195677e-05,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up3": {
-          "max_bound_ratio": 0.0001412473211530596,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up4": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
         "full": {
-          "max_bound_ratio": 1.857634197222069e-05,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.001168810878880322,
+          "max_rel_error_bright": 1.1884131367878581e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -134,8 +44,8 @@
           ]
         },
         "even": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.0035760358441621065,
+          "max_rel_error_bright": 3.670394903565466e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -143,8 +53,8 @@
           ]
         },
         "odd": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.002997277770191431,
+          "max_rel_error_bright": 3.796018290813663e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -152,8 +62,8 @@
           ]
         },
         "spikes": {
-          "max_bound_ratio": 1.8591796106193215e-05,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.0015305392444133759,
+          "max_rel_error_bright": 1.8142557678402227e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -167,116 +77,26 @@
       "decides": "spikes",
       "levels": {
         "mip0": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.9136719107627869,
+          "max_rel_error_bright": 9.985228098230436e-05,
           "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip1": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip2": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip3": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip4": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip5": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up0": {
-          "max_bound_ratio": 0.0003626492398325354,
-          "max_rel_error_bright": 6.607357505572509e-08,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up1": {
-          "max_bound_ratio": 1.8573116904008202e-05,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up2": {
-          "max_bound_ratio": 0.00012328480079304427,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up3": {
-          "max_bound_ratio": 1.6418114682892337e-05,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up4": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
+            1.6689300537109375e-06,
+            1.0728836059570312e-06,
+            1.3113021850585938e-06
           ]
         },
         "full": {
-          "max_bound_ratio": 0.00022713051293976605,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.3822652995586395,
+          "max_rel_error_bright": 4.204994911560789e-05,
           "energy_ratio_minus_1": [
+            2.384185791015625e-07,
             0.0,
-            0.0,
-            0.0
+            4.76837158203125e-07
           ]
         },
         "even": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.005406712181866169,
+          "max_rel_error_bright": 6.194235879775079e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -284,8 +104,8 @@
           ]
         },
         "odd": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.007093293126672506,
+          "max_rel_error_bright": 8.072639161582629e-07,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -293,12 +113,12 @@
           ]
         },
         "spikes": {
-          "max_bound_ratio": 0.00022779739811085165,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.3801771402359009,
+          "max_rel_error_bright": 4.1752275137696415e-05,
           "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
+            2.384185791015625e-07,
+            1.0728836059570312e-06,
+            5.960464477539062e-07
           ]
         }
       }
@@ -308,125 +128,35 @@
       "decides": "spikes",
       "levels": {
         "mip0": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.9513165354728699,
+          "max_rel_error_bright": 0.00010168030712520704,
           "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip1": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip2": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip3": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip4": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "mip5": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up0": {
-          "max_bound_ratio": 0.00046250424929894507,
-          "max_rel_error_bright": 8.276597895928717e-08,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up1": {
-          "max_bound_ratio": 8.348462142748758e-05,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up2": {
-          "max_bound_ratio": 0.0011445501586422324,
-          "max_rel_error_bright": 1.1464990734566527e-07,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up3": {
-          "max_bound_ratio": 1.878197508631274e-05,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "up4": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
-          "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
+            7.152557373046875e-07,
+            5.960464477539062e-07,
+            5.960464477539062e-07
           ]
         },
         "full": {
-          "max_bound_ratio": 0.001898392685689032,
-          "max_rel_error_bright": 2.1791065307752433e-07,
+          "max_bound_ratio": 0.8185244798660278,
+          "max_rel_error_bright": 8.696529403096065e-05,
           "energy_ratio_minus_1": [
-            0.0,
-            0.0,
-            0.0
+            1.1920928955078125e-07,
+            3.5762786865234375e-07,
+            1.1920928955078125e-07
           ]
         },
         "even": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.007561371196061373,
+          "max_rel_error_bright": 8.283827241939434e-07,
           "energy_ratio_minus_1": [
-            0.0,
-            0.0,
+            -1.7881393432617188e-07,
+            -5.960464477539063e-08,
             0.0
           ]
         },
         "odd": {
-          "max_bound_ratio": 0.0,
-          "max_rel_error_bright": 0.0,
+          "max_bound_ratio": 0.008988024666905403,
+          "max_rel_error_bright": 1.0004616797232302e-06,
           "energy_ratio_minus_1": [
             0.0,
             0.0,
@@ -434,12 +164,12 @@
           ]
         },
         "spikes": {
-          "max_bound_ratio": 0.0018932030070573092,
-          "max_rel_error_bright": 2.1514684078738355e-07,
+          "max_bound_ratio": 0.8148100972175598,
+          "max_rel_error_bright": 8.654336124891415e-05,
           "energy_ratio_minus_1": [
+            -2.980232238769531e-07,
             0.0,
-            0.0,
-            0.0
+            2.384185791015625e-07
           ]
         }
       }

@@ -1,6 +1,10 @@
 """The spike term (slang/glare.slang streak / spike_composite, via train_glare.slang) before any
 training: rays go where and as far as the design says, keep their light, get zero outside the
-frame, mix like the levels' softmax, and pass gradients to their logits and inputs.
+frame, mix like the levels' softmax, and pass gradients to their logits and inputs. The per-ray
+cross filter (ray_cross_accumulate, decision log 2026-11-19) moves light across its ray by the
+tap the design says, keeps light, reads the field in the ray's frame and passes gradients. Per-ray
+brightness (ray_bright_accumulate / spike_composite_bright, 2026-11-19) starts as the cross term,
+is 1 on axis, sums to 7 over a family, matches the gains it is defined by, and passes gradients.
 
 As in test_glare_chain.py, every call passes params that require grad (slangpy 0.43.1 decides
 from an entry point's first call whether it is differentiable).
@@ -210,3 +214,291 @@ def test_profile_gradient_matches_finite_difference(module):
             fd = (loss(plus).double() - loss(minus).double()) / (2 * h)
         assert params.grad[i].item() == pytest.approx(fd.item(), rel=2e-3), i
     assert params.grad[12:].abs().max() == 0, "ray 0 must not touch the odd family's logits"
+
+
+# ------------------------------------------------------------- per-ray cross filter (2026-11-19)
+
+def cross_sizes(module):
+    v = module.ray_mlp_sizes()
+    return int(v.x), int(v.y), int(v.z), int(v.w)       # inputs, hidden, taps, parameters
+
+
+def cross_params(module, bias, profile=0.0):
+    """Profile logits (all `profile`), then RayMLP with every weight 0 and output biases `bias`:
+    the same 3 tap weights softmax(bias) at every texel."""
+    count, n = sizes(module)[3], cross_sizes(module)[3]
+    p = torch.zeros(count + n)
+    p[:count] = profile
+    p[-3:] = torch.tensor(bias)
+    return p.cuda().requires_grad_(True)
+
+
+def crossed(module, img, params, k, acc=None):
+    """Ray k through all its passes, then the cross filter (RayMLP after the profile logits)."""
+    _, passes, _, count = sizes(module)
+    for stage in range(passes):
+        img = module.streak_pass(texel=spy.grid((H, W)), src=img, params=params, profile=0,
+                                 ray=k, stage=stage)
+    # requires_grad: slangpy 0.43.1 on Vulkan needs a gradient buffer on every DiffTensor in a backward
+    acc = torch.zeros(H, W, 3, device="cuda", requires_grad=True) if acc is None else acc
+    return module.ray_cross_accumulate_pass(texel=spy.grid((H, W)), out_size=spy.int2(W, H),
+                                            src=img, acc=acc, params=params, offset=count, ray=k)
+
+
+@needs_cuda
+def test_cross_sizes(module):
+    i, h, o, n = cross_sizes(module)
+    assert (i, o) == (3, 3) and n == (i * h + h) + (h * o + o)
+
+
+@needs_cuda
+@pytest.mark.parametrize("k", (0, 3, 8))
+def test_cross_centre_tap_is_the_plain_ray(module, k):
+    """Biases (-30, 0, -30): the centre tap only, so the term is the plain ray plus the running sum."""
+    p = cross_params(module, [-30.0, 0.0, -30.0])
+    acc = torch.rand(H, W, 3, device="cuda")
+    got = crossed(module, impulse(), p, k, acc)
+    want = acc + ray(module, impulse(), p, k)
+    torch.testing.assert_close(got.detach(), want.detach(), rtol=1e-6, atol=1e-7)
+
+
+@needs_cuda
+@pytest.mark.parametrize("tap, dy", ((0, -1), (2, 1)))
+def test_cross_tap_moves_the_ray_across(module, tap, dy):
+    """Ray 0 runs along +x, so n_0 = (0, 1): tap 0 moves the whole ray one texel to -y, tap 2 to +y."""
+    b = [-30.0, -30.0, -30.0]
+    b[tap] = 0.0
+    out = crossed(module, impulse(), cross_params(module, b), 0).detach().cpu().numpy()[..., 0]
+    x, y = SRC
+    np.testing.assert_allclose(out[y + dy, x:x + 64], 1 / 64, rtol=1e-5)
+    assert out.sum() == pytest.approx(1.0, rel=1e-5)
+
+
+@needs_cuda
+@pytest.mark.parametrize("k", range(14))
+def test_cross_filter_keeps_light_when_uniform(module, k):
+    """Random biases, weights 0: one positive filter summing to 1 at every texel, a convolution, so
+    a point's light is kept exactly. (With field-dependent weights only approximately: they are
+    taken at the receiving texel.)"""
+    b = torch.randn(3, generator=torch.Generator().manual_seed(k)).tolist()
+    out = crossed(module, impulse(), cross_params(module, b), k).detach().cpu().numpy()[..., 0]
+    assert out.sum() == pytest.approx(1.0, rel=1e-5)
+    assert out.min() >= 0
+
+
+@needs_cuda
+def test_cross_mix_sees_the_field_in_the_ray_frame(module):
+    """The input is (e_k . v, n_k . v, family): v rotated by two rays' angle, read by ray k + 2 (same
+    family), gives the same weights; at the frame centre (v = 0) there is one filter per family."""
+    count, n = sizes(module)[3], cross_sizes(module)[3]
+    p = torch.randn(count + n, generator=torch.Generator().manual_seed(0)).cuda().requires_grad_(True)
+    v = torch.rand(64, 2, generator=torch.Generator().manual_seed(1)).cuda() * 2 - 1
+    a = 2 * 2 * np.pi / 14
+    rot = torch.tensor([[np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]], dtype=torch.float32,
+                       device="cuda")
+    for k in (0, 1, 5, 13):
+        w0 = module.cross_mix(v=v, params=p, offset=count, ray=k)
+        w1 = module.cross_mix(v=v @ rot.T, params=p, offset=count, ray=(k + 2) % 14)
+        torch.testing.assert_close(w0.detach(), w1.detach(), rtol=1e-5, atol=1e-5)
+    zero = torch.zeros(1, 2, device="cuda")
+    at_centre = [module.cross_mix(v=zero, params=p, offset=count, ray=k).detach() for k in range(14)]
+    for k in range(2, 14):
+        torch.testing.assert_close(at_centre[k], at_centre[k % 2])
+    assert not torch.allclose(at_centre[0], at_centre[1]), "the family input must change the weights"
+
+
+@needs_cuda
+def test_cross_gradient_matches_finite_difference(module):
+    """A loss that weighs distance across ray 0 (y), so the side taps' biases have a gradient;
+    checked against a central difference through the three passes and the cross filter."""
+    weight = torch.arange(H, device="cuda", dtype=torch.float32)[:, None, None].expand(H, W, 3)
+    count, n = sizes(module)[3], cross_sizes(module)[3]
+
+    def loss(p):
+        return (crossed(module, impulse(), p, 0) * weight).sum()
+
+    params = cross_params(module, [0.3, 0.0, -0.2])
+    loss(params).backward()
+    h = 1e-2
+    for i in (count + n - 3, count + n - 1):          # output biases of taps 0 and 2
+        plus, minus = params.detach().clone(), params.detach().clone()
+        plus[i] += h
+        minus[i] -= h
+        with torch.no_grad():
+            fd = (loss(plus).double() - loss(minus).double()) / (2 * h)
+        assert params.grad[i].item() == pytest.approx(fd.item(), rel=2e-3), i
+
+
+# ------------------------------------------------------------- per-ray brightness (2026-11-19)
+
+def bright_sizes(module):
+    v = module.bright_mlp_sizes()
+    return int(v.x), int(v.y), int(v.z), int(v.w)       # inputs, hidden, outputs, parameters
+
+
+def full_spike_params(module, seed=None, bright_scale=1.0):
+    """[SpikeMLP][profile logits][RayMLP][BrightMLP] with the composite at offset 0, and the
+    (profile, RayMLP, BrightMLP) starts. seed None: all 0 but the mix biases; else random (the
+    BrightMLP part times bright_scale)."""
+    s, count = int(module.spike_mlp_sizes().w), sizes(module)[3]
+    r, b = cross_sizes(module)[3], bright_sizes(module)[3]
+    if seed is None:
+        p = torch.zeros(s + count + r + b)
+    else:
+        p = torch.randn(s + count + r + b, generator=torch.Generator().manual_seed(seed)) * 0.5
+        p[s + count + r:] *= bright_scale
+    p[s - 9:s] = torch.tensor([0.5, -0.5, -1.0] * 3)                 # mix biases, every channel
+    return p.cuda().requires_grad_(True), (s, s + count, s + count + r)
+
+
+def family_rays(module, img, params, offsets, bright):
+    """Every ray of img through its passes and the cross pass (with e^{z_k} if bright), summed
+    per family: the (even, odd) the composite reads."""
+    profile, ray_off, _ = offsets
+    passes = sizes(module)[1]
+    acc = [torch.zeros(H, W, 3, device="cuda", requires_grad=True) for _ in range(2)]
+    for k in range(14):
+        s = img
+        for stage in range(passes):
+            s = module.streak_pass(texel=spy.grid((H, W)), src=s, params=params, profile=profile,
+                                   ray=k, stage=stage)
+        accumulate = (module.ray_bright_accumulate_pass if bright
+                      else module.ray_cross_accumulate_pass)
+        acc[k % 2] = accumulate(texel=spy.grid((H, W)), out_size=spy.int2(W, H), src=s,
+                                acc=acc[k % 2], params=params, offset=ray_off, ray=k)
+    return acc
+
+
+def bright_term(module, img, params, offsets, bright=True):
+    """The spike term of img onto a zero base (spike_bright_pass, or spike_pass if not bright)."""
+    even, odd = family_rays(module, img, params, offsets, bright)
+    composite = module.spike_bright_pass if bright else module.spike_pass
+    base = torch.zeros(H, W, 3, device="cuda", requires_grad=True)
+    return composite(texel=spy.grid((H, W)), out_size=spy.int2(W, H), base=base, even=even,
+                     odd=odd, params=params, offset=0)
+
+
+def texel_grid():
+    """(uv, field_offset) at every texel of an (H, W) frame, each (H * W, 2), row-major."""
+    yy, xx = torch.meshgrid(torch.arange(H, device="cuda"), torch.arange(W, device="cuda"),
+                            indexing="ij")
+    p = torch.stack([xx + 0.5, yy + 0.5], -1).float().reshape(-1, 2)
+    size = torch.tensor([W, H], dtype=torch.float32, device="cuda")
+    return p / size, (p - size / 2) / float(np.hypot(W / 2, H / 2))
+
+
+@needs_cuda
+def test_bright_sizes(module):
+    i, h, o, n = bright_sizes(module)
+    assert (i, o) == (3, 1) and n == (i * h + h) + (h * o + o)
+
+
+@needs_cuda
+def test_bright_zero_is_the_cross_term(module):
+    """BrightMLP all 0: every e^{z_k} = 1 and Z = 7, so the term is the cross model's."""
+    params, offsets = full_spike_params(module)
+    with torch.no_grad():
+        params[offsets[1]:offsets[2]] = torch.randn(
+            offsets[2] - offsets[1], generator=torch.Generator().manual_seed(3)).cuda()
+    got = bright_term(module, impulse(), params, offsets, bright=True)
+    want = bright_term(module, impulse(), params, offsets, bright=False)
+    torch.testing.assert_close(got.detach(), want.detach(), rtol=1e-6, atol=1e-9)
+
+
+@needs_cuda
+def test_bright_gain_is_one_on_axis_and_sums_to_seven(module):
+    """At v = 0 a family's rays all see the same input, so every gain is 1 whatever the weights;
+    anywhere, a family's 7 gains are positive and sum to 7."""
+    params, (_, _, off) = full_spike_params(module, seed=0, bright_scale=4.0)
+    zero = torch.zeros(1, 2, device="cuda")
+    for k in range(14):
+        g = module.ray_gain(v=zero, params=params, offset=off, ray=k).detach()
+        torch.testing.assert_close(g, torch.ones_like(g), rtol=1e-6, atol=1e-6)
+    v = torch.rand(64, 2, generator=torch.Generator().manual_seed(1)).cuda() * 2 - 1
+    gains = torch.stack([module.ray_gain(v=v, params=params, offset=off, ray=k).detach()
+                         for k in range(14)])
+    assert gains.min() > 0
+    assert not torch.allclose(gains, torch.ones_like(gains), atol=1e-3), "the gains must vary"
+    for fam in (0, 1):
+        torch.testing.assert_close(gains[fam::2].sum(0), torch.full((64,), 7.0, device="cuda"),
+                                   rtol=1e-5, atol=1e-5)
+
+
+@needs_cuda
+def test_bright_brightens_the_ray_along_the_field(module):
+    """BrightMLP z = 2 relu(e_k . v): at v along e_0, ray 0 (e . v largest) gets the largest gain
+    of its family, above 1, and the rays pointing away from v less than 1."""
+    params, (_, _, off) = full_spike_params(module)
+    i, h, _, _ = bright_sizes(module)
+    with torch.no_grad():
+        params[off + 0] = 1.0                    # hidden unit 0 reads e . v (W1[0][0])
+        params[off + i * h + h] = 2.0            # the output reads hidden unit 0 (W2[0][0])
+    v = torch.tensor([[0.8, 0.0]], device="cuda")
+    g = torch.stack([module.ray_gain(v=v, params=params, offset=off, ray=k).detach()[0]
+                     for k in range(0, 14, 2)])  # the even family: rays 0, 2, .., 12
+    assert g.argmax() == 0 and g[0] > 1
+    assert (g[2:5] < 1).all(), "rays 4, 6, 8 point away from v"
+
+
+@needs_cuda
+def test_bright_term_matches_its_gains(module):
+    """The pulled-out normaliser: the term equals w1 * sum_even g_k S'_k / 7 + w2 * sum_odd ...,
+    g_k = ray_gain at each texel and S'_k the plain cross-filtered rays, for random weights."""
+    params, offsets = full_spike_params(module, seed=2, bright_scale=4.0)
+    img = torch.zeros(H, W, 3, device="cuda")
+    img[30, 40] = 1.0                            # off-centre sources, so the gains vary
+    img[120, 170] = 2.0
+    got = bright_term(module, img, params, offsets, bright=True).detach()
+    profile, ray_off, off = offsets
+    uv, v = texel_grid()
+    passes = sizes(module)[1]
+    fams = [torch.zeros(H, W, 3, device="cuda"), torch.zeros(H, W, 3, device="cuda")]
+    for k in range(14):
+        s = img
+        for stage in range(passes):
+            s = module.streak_pass(texel=spy.grid((H, W)), src=s, params=params, profile=profile,
+                                   ray=k, stage=stage)
+        zero = torch.zeros(H, W, 3, device="cuda", requires_grad=True)
+        sk = module.ray_cross_accumulate_pass(texel=spy.grid((H, W)), out_size=spy.int2(W, H),
+                                              src=s, acc=zero, params=params, offset=ray_off,
+                                              ray=k).detach()
+        g = module.ray_gain(v=v, params=params, offset=off, ray=k).detach().reshape(H, W, 1)
+        fams[k % 2] += g * sk / 7
+    w = torch.stack([module.spike_mix(uv=uv, params=params, offset=0, channel=c).detach()
+                     for c in range(3)], -1).reshape(H, W, 3, 3)          # (y, x, weight, channel)
+    want = w[:, :, 1] * fams[0] + w[:, :, 2] * fams[1]
+    assert got.sum().item() > 0
+    # atol: float32 rounding of the two orders of summation, 5e-8 seen against a 7e-3 peak
+    torch.testing.assert_close(got, want, rtol=1e-4, atol=1e-5 * want.abs().max().item())
+
+
+@needs_cuda
+def test_bright_gradient_matches_finite_difference(module):
+    """A loss that weighs position, so moving light between rays changes it; checked against a
+    central difference on BrightMLP weights through both passes. Its output bias is common to
+    every ray, so softmax cancels it: gradient 0."""
+    params, offsets = full_spike_params(module, seed=4, bright_scale=2.0)
+    off = offsets[2]
+    i, h, _, _ = bright_sizes(module)
+    img = torch.zeros(H, W, 3, device="cuda")
+    img[30, 40] = 1.0
+    yy, xx = torch.meshgrid(torch.arange(H, device="cuda"), torch.arange(W, device="cuda"),
+                            indexing="ij")
+    weight = (xx + 2 * yy).float()[..., None].expand(H, W, 3)
+
+    def loss(p):
+        return (bright_term(module, img, p, offsets) * weight).sum()
+
+    loss(params).backward()
+    step = 1e-2
+    for j in (off + 1, off + i * h + h + 2):          # a hidden weight and an output weight
+        plus, minus = params.detach().clone(), params.detach().clone()
+        plus[j] += step
+        minus[j] -= step
+        with torch.no_grad():
+            fd = (loss(plus).double() - loss(minus).double()) / (2 * step)
+        assert params.grad[j].item() == pytest.approx(fd.item(), rel=5e-3, abs=1e-6), j
+    # The bias's gradient is the difference of two equal terms (the rays' e^{z_k} and Z), so in
+    # float32 it is noise: 5e-5 of the largest BrightMLP gradient seen
+    bright_grad = params.grad[off:off + bright_sizes(module)[3]]
+    assert abs(bright_grad[-1].item()) < 1e-3 * bright_grad.abs().max().item(), "the bias cancels"

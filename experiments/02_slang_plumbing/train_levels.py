@@ -108,33 +108,87 @@ def spike_layout(module):
     return lay
 
 
+@functools.cache
+def ray_mlp(module):
+    """RayMLP's shape (glare.slang, the per-ray cross filter; decision log 2026-11-19), read as
+    level_mlp(). Its parameters follow the spike section."""
+    v = module.ray_mlp_sizes()
+    net = LevelMLP(int(v.x), int(v.y), int(v.z), int(v.w))
+    assert net.param_count == (net.inputs * net.hidden + net.hidden) + (
+        net.hidden * net.outputs + net.outputs), f"PARAM_COUNT isn't mlp.slang's layout: {net}"
+    return net
+
+
+@functools.cache
+def bright_mlp(module):
+    """BrightMLP's shape (glare.slang, per-ray brightness; decision log 2026-11-19), read as
+    level_mlp(). Its parameters follow RayMLP's."""
+    v = module.bright_mlp_sizes()
+    net = LevelMLP(int(v.x), int(v.y), int(v.z), int(v.w))
+    assert net.param_count == (net.inputs * net.hidden + net.hidden) + (
+        net.hidden * net.outputs + net.outputs), f"PARAM_COUNT isn't mlp.slang's layout: {net}"
+    return net
+
+
 SPIKE_SOURCES = ("mip0", "input")   # the image a model's rays are streaked from (2026-11-05)
 
 
-def engine_layout(module, levels, spikes, source=None):
+def engine_layout(module, levels, spikes, source=None, cross=False, bright=False):
     """The layout file the engines read next to a weight file (ParityHarness: glare_params.json):
     the network shapes from glare.slang, the level count, and, with the spike term, its sizes and
-    which image its rays are streaked from (source, one of SPIKE_SOURCES). Written by
-    train_points.py next to every export, and by unity_parity.py export for older weights."""
+    which image its rays are streaked from (source, one of SPIKE_SOURCES). With the per-ray cross
+    filter (cross, after the spike section), its parameter count and taps, and with per-ray
+    brightness (bright, after the cross filter) its parameter count; the keys appear only then, so
+    the layout files of earlier runs still match. Written by train_points.py next to every export,
+    and by unity_parity.py export for older weights."""
     assert (source in SPIKE_SOURCES) == spikes, (spikes, source)
+    assert spikes or not cross, "the cross filter needs the spike term"
+    assert cross or not bright, "per-ray brightness needs the cross filter"
     net, lay = level_mlp(module), spike_layout(module)
-    return {"inputs": net.inputs, "hidden": net.hidden, "outputs": net.outputs,
-            "paramCount": net.param_count, "levels": levels,
-            "spikeParamCount": lay.net.param_count if spikes else 0,
-            "profileCount": lay.profile_count if spikes else 0,
-            "rays": lay.rays if spikes else 0, "passes": lay.passes if spikes else 0,
-            "spikeSource": source or "",
-            "source": "slang/glare.slang LevelMLP and SpikeMLP"}
+    layout = {"inputs": net.inputs, "hidden": net.hidden, "outputs": net.outputs,
+              "paramCount": net.param_count, "levels": levels,
+              "spikeParamCount": lay.net.param_count if spikes else 0,
+              "profileCount": lay.profile_count if spikes else 0,
+              "rays": lay.rays if spikes else 0, "passes": lay.passes if spikes else 0,
+              "spikeSource": source or "",
+              "source": "slang/glare.slang LevelMLP and SpikeMLP"}
+    if cross:
+        ray = ray_mlp(module)
+        layout |= {"crossParamCount": ray.param_count, "crossTaps": ray.outputs,
+                   "source": "slang/glare.slang LevelMLP, SpikeMLP and RayMLP"}
+    if bright:
+        layout |= {"brightParamCount": bright_mlp(module).param_count,
+                   "source": "slang/glare.slang LevelMLP, SpikeMLP, RayMLP and BrightMLP"}
+    return layout
+
+
+def spike_parts(module, n_params, n_levels):
+    """(spikes, cross, bright): whether a parameter buffer of n_params floats holds the spike
+    section after its n_levels level networks, the per-ray cross filter after that, and per-ray
+    brightness after that (and nothing else)."""
+    levels = n_levels * level_mlp(module).param_count
+    spikes = levels + spike_layout(module).param_count
+    cross = spikes + ray_mlp(module).param_count
+    bright = cross + bright_mlp(module).param_count
+    assert n_params in (levels, spikes, cross, bright), (
+        f"{n_params} parameters: neither {n_levels} levels ({levels}), levels + spikes ({spikes}), "
+        f"+ cross filter ({cross}) nor + brightness ({bright})")
+    return n_params >= spikes, n_params >= cross, n_params == bright
 
 
 def has_spikes(module, n_params, n_levels):
-    """Whether a parameter buffer of n_params floats holds the spike section after its n_levels
-    level networks (and that it holds nothing else)."""
-    levels = n_levels * level_mlp(module).param_count
-    spikes = levels + spike_layout(module).param_count
-    assert n_params in (levels, spikes), (
-        f"{n_params} parameters: neither {n_levels} levels ({levels}) nor levels + spikes ({spikes})")
-    return n_params == spikes
+    """Whether a parameter buffer of n_params floats holds the spike section (spike_parts)."""
+    return spike_parts(module, n_params, n_levels)[0]
+
+
+def has_cross(module, n_params, n_levels):
+    """Whether it holds the per-ray cross filter after the spike section (spike_parts)."""
+    return spike_parts(module, n_params, n_levels)[1]
+
+
+def has_bright(module, n_params, n_levels):
+    """Whether it holds per-ray brightness after the cross filter (spike_parts)."""
+    return spike_parts(module, n_params, n_levels)[2]
 
 
 def init_params(gen, net):

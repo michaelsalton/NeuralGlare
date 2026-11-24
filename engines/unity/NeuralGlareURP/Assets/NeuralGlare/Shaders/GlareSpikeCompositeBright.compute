@@ -1,0 +1,6 @@
+#pragma kernel SpikeCompositeBright
+
+// Declared here, not in the generated HLSL: Unity only binds plain uniforms in $Globals
+int _ParamOffset;   // SpikeMLP's start (BrightMLP's offset follows from glare.slang's layout)
+
+#include "../Generated/glare_SpikeCompositeBright.hlsl"

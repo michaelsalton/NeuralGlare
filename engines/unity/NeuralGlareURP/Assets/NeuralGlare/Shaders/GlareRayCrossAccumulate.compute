@@ -1,0 +1,7 @@
+#pragma kernel RayCrossAccumulate
+
+// Declared here, not in the generated HLSL: Unity only binds plain uniforms in $Globals
+int _ParamOffset;   // RayMLP's start (after the profile logits)
+int _Ray;
+
+#include "../Generated/glare_RayCrossAccumulate.hlsl"

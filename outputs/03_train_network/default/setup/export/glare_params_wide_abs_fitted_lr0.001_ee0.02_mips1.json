@@ -1,0 +1,13 @@
+{
+  "inputs": 2,
+  "hidden": 16,
+  "outputs": 18,
+  "paramCount": 354,
+  "levels": 1,
+  "spikeParamCount": 201,
+  "profileCount": 24,
+  "rays": 14,
+  "passes": 3,
+  "spikeSource": "input",
+  "source": "slang/glare.slang LevelMLP and SpikeMLP"
+}

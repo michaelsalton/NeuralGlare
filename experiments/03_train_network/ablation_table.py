@@ -35,8 +35,9 @@ NOISE = {"baseline": BASELINE, "coma": ("coma", "_offsets_abs_fitted_lr0.0001"),
          "spikes_full": ("spikes_full", "_spikes_full_abs_fitted_lr0.0001")}
 BINS = ("centre", "mid", "edge")
 
-# One row per change, in the order they were run. against: the study it was compared with (the
-# current best at the time). delta: which NOISE run's δ the comparison used. mlp: LevelMLP's
+# One row per change, in the order they were run. id: the row's key, default its study (a study
+# with several rows, e.g. mip_levels, gives each one its own). against: the id of the row it was
+# compared with (the current best at the time). delta: which NOISE run's δ the comparison used. mlp: LevelMLP's
 # (inputs, hidden, outputs), checked against the run's stored param_count; spike parameters (the
 # run's spike_param_count) are added to the total. extra: per-texel cost the level MLP's
 # multiply-adds don't show.
@@ -62,13 +63,66 @@ ABLATIONS = [
      "mlp": (2, 16, 4),
      "extra": " + 2 bilinear taps, softmax, length(); spikes: 168 fetches per full-res texel, "
               "80 MACs + 2 fetches per full-res texel",
-     "decision": "kept, current best (decision log 2026-11-05)"},
+     "decision": "kept, current best 2026-11-05, superseded 2026-11-10"},
     {"label": "Per-channel weights: one softmax per colour channel", "study": "per_channel",
      "tag": "_per_channel_abs_fitted_lr0.0001", "against": "spikes_full", "delta": "spikes_full",
      "mlp": (2, 16, 12),
      "extra": " + 2 bilinear taps, 3 softmaxes, length(); spikes: 168 fetches per full-res texel, "
               "176 MACs + 2 fetches per full-res texel",
-     "decision": "pending (decision log 2026-11-09)"},
+     "decision": "no result row of its own; the base of mip_levels, which reports it at "
+                 "-10.0δ_coma vs spikes_full (decision log 2026-11-10)"},
+    {"label": "2 mips instead of 6", "study": "mip_levels", "id": "mips2",
+     "tag": "_per_channel_abs_fitted_lr0.0001_mips2", "against": "per_channel", "delta": "coma",
+     "mlp": (2, 16, 12),
+     "extra": " + 2 bilinear taps, 3 softmaxes, length(); spikes: 168 fetches per full-res texel, "
+              "176 MACs + 2 fetches per full-res texel",
+     "decision": "kept over 6 mips, superseded by 1 mip (decision log 2026-11-10)"},
+    {"label": "1 mip: the full-resolution level only", "study": "mip_levels", "id": "mips1",
+     "tag": "_per_channel_abs_fitted_lr0.0001_mips1", "against": "per_channel", "delta": "coma",
+     "mlp": (2, 16, 12),
+     "extra": " + 2 bilinear taps, 3 softmaxes, length(); spikes: 168 fetches per full-res texel, "
+              "176 MACs + 2 fetches per full-res texel",
+     "decision": "kept, current best 2026-11-10, superseded 2026-11-13"},
+    {"label": "Tent upsample: the low tap is a 3x3 tent, not bilinear", "study": "tent_upsample",
+     "id": "tent", "tag": "_per_channel_abs_fitted_lr0.0001_mips1", "against": "mips1",
+     "delta": "coma", "mlp": (2, 16, 12),
+     "extra": " + 2 bilinear taps, 9-tap tent low fetch, 3 softmaxes, length(); spikes: 168 "
+              "fetches per full-res texel, 176 MACs + 2 fetches per full-res texel",
+     "decision": "kept 2026-11-13, superseded the same day by lr 1e-3"},
+    {"label": "Learning rate 1e-3 (was 1e-4)", "study": "tent_upsample", "id": "tent_lr1e-3",
+     "tag": "_per_channel_abs_fitted_lr0.001_mips1", "against": "tent", "delta": "coma",
+     "mlp": (2, 16, 12),
+     "extra": " + 2 bilinear taps, 9-tap tent low fetch, 3 softmaxes, length(); spikes: 168 "
+              "fetches per full-res texel, 176 MACs + 2 fetches per full-res texel",
+     "decision": "kept, current best 2026-11-13; lr 1e-3 becomes the default"},
+    {"label": "Fifth tap: the own-mip 3x3 tent", "study": "shoulder_tap",
+     "tag": "_shoulder_abs_fitted_lr0.001_mips1", "against": "tent_lr1e-3", "delta": "coma",
+     "mlp": (2, 16, 15),
+     "extra": " + 2 bilinear taps, tent low fetch, +9 fetches (own tent), 3 softmaxes, length(); "
+              "spikes as above",
+     "decision": "no result row in the decision log; core_loss and wide_core build on it"},
+    {"label": "Core loss: + 0.02 x encircled energy by ring (training only)", "study": "core_loss",
+     "tag": "_shoulder_abs_fitted_lr0.001_ee0.02_mips1", "against": "shoulder_tap",
+     "delta": "coma", "mlp": (2, 16, 15), "extra": " (no runtime cost: a loss term)",
+     "decision": "no result row in the decision log; λ = 0.02 used from wide_core on"},
+    {"label": "Sixth tap: the own-mip 5x5 binomial", "study": "wide_core",
+     "tag": "_wide_abs_fitted_lr0.001_ee0.02_mips1", "against": "shoulder_tap", "delta": "coma",
+     "mlp": (2, 16, 18),
+     "extra": " + 2 bilinear taps, tent low fetch, +18 fetches (own tent, binomial), 3 softmaxes, "
+              "length(); spikes as above",
+     "decision": "kept by its own rule (core loss < 0.6, FLIP within δ/√3), current best "
+                 "2026-11-17, superseded 2026-11-19"},
+    {"label": "Per-ray cross filter: 3 taps across each ray, softmax(RayMLP)", "study": "ray_cross",
+     "tag": "_cross_abs_fitted_lr0.001_ee0.02_mips1", "against": "wide_core", "delta": "coma",
+     "mlp": (2, 16, 18),
+     "extra": " as wide_core; rays: +14 dispatches, +42 fetches and 14 RayMLP<3, 8, 3> per "
+              "full-res texel",
+     "decision": "kept, current best 2026-11-19, superseded 2026-11-23"},
+    {"label": "Per-ray brightness: 7 softmax(BrightMLP) per family", "study": "ray_bright",
+     "tag": "_bright_abs_fitted_lr0.001_ee0.02_mips1", "against": "ray_cross", "delta": "coma",
+     "mlp": (2, 16, 18),
+     "extra": " as ray_cross; rays: + 28 BrightMLP<3, 8, 1> per full-res texel, no new fetches",
+     "decision": "kept, current best (decision log 2026-11-23)"},
 ]
 
 
@@ -105,10 +159,12 @@ def main():
     start = base["results"]["trained"]["summary"]["edge"]["flip"]      # the edge gap's start
     target = base["phase0"]["fft_centre"]["edge"]["flip"]               # and its end
 
-    evals = {a["study"]: load_eval(args.run, a["study"], a["tag"]) for a in ABLATIONS}
+    ids = [a.get("id", a["study"]) for a in ABLATIONS]
+    assert len(set(ids)) == len(ids), f"duplicate ablation ids: {ids}"
+    evals = {i: load_eval(args.run, a["study"], a["tag"]) for i, a in zip(ids, ABLATIONS)}
     rows = []
-    for a in ABLATIONS:
-        d = evals[a["study"]]
+    for i, a in zip(ids, ABLATIONS):
+        d = evals[i]
         trained = d["results"]["trained"]
         val, summary = trained["val"]["flip"], trained["summary"]
         params, macs = mlp_cost(a["mlp"], d["param_count"])

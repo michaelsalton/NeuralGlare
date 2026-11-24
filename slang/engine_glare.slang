@@ -36,7 +36,7 @@ struct BufferParams : IParams
 
 Texture2D<float4> _Source;          // this pass's input (upsample: this level's mip)
 Texture2D<float4> _SourceLow;       // upsample only: the output of the level below
-Texture2D<float4> _Accum;           // StreakAccumulate only: the ray family's sum so far
+Texture2D<float4> _Accum;           // StreakAccumulate / RayCrossAccumulate only: the ray family's sum so far
 Texture2D<float4> _SpikeEven;       // SpikeComposite only: the even family's rays
 Texture2D<float4> _SpikeOdd;        // SpikeComposite only: the odd family's rays
 StructuredBuffer<float> _GlareParams;
@@ -161,6 +161,42 @@ void StreakAccumulate(uint3 id : SV_DispatchThreadID)
                                               stage_index()), 1.0);
 }
 
+// A ray's cross filter (glare.slang ray_cross_accumulate, decision log 2026-11-19): _Target =
+// _Accum + 3 taps across ray _Ray of _Source (the ray's last streak pass). _ParamOffset holds
+// RayMLP's start (after the profile logits).
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void RayCrossAccumulate(uint3 id : SV_DispatchThreadID)
+{
+    int2 size = target_size();
+    int2 texel = int2(id.xy);
+    if (any(texel >= size))
+        return;
+    TextureImage src = { _Source };
+    TextureImage acc = { _Accum };
+    BufferParams params = { _GlareParams };
+    _Target[texel] = float4(ray_cross_accumulate(texel, size, src, acc, params, param_offset(),
+                                                 ray_index()), 1.0);
+}
+
+// RayCrossAccumulate with per-ray brightness (glare.slang ray_bright_accumulate, decision log
+// 2026-11-19): _Target = _Accum + e^{z_k} * the cross-filtered ray. _ParamOffset holds RayMLP's
+// start (BrightMLP follows it).
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void RayBrightAccumulate(uint3 id : SV_DispatchThreadID)
+{
+    int2 size = target_size();
+    int2 texel = int2(id.xy);
+    if (any(texel >= size))
+        return;
+    TextureImage src = { _Source };
+    TextureImage acc = { _Accum };
+    BufferParams params = { _GlareParams };
+    _Target[texel] = float4(ray_bright_accumulate(texel, size, src, acc, params, param_offset(),
+                                                  ray_index()), 1.0);
+}
+
 // The final frame: _Source = the full-resolution level's output, mixed with the two families.
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -175,4 +211,22 @@ void SpikeComposite(uint3 id : SV_DispatchThreadID)
     TextureImage odd = { _SpikeOdd };
     BufferParams params = { _GlareParams };
     _Target[texel] = float4(spike_composite(texel, size, base, even, odd, params, param_offset()), 1.0);
+}
+
+// SpikeComposite with per-ray brightness: each family divided by its normaliser Z, not by 7.
+// _ParamOffset holds SpikeMLP's start, as SpikeComposite.
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void SpikeCompositeBright(uint3 id : SV_DispatchThreadID)
+{
+    int2 size = target_size();
+    int2 texel = int2(id.xy);
+    if (any(texel >= size))
+        return;
+    TextureImage base = { _Source };
+    TextureImage even = { _SpikeEven };
+    TextureImage odd = { _SpikeOdd };
+    BufferParams params = { _GlareParams };
+    _Target[texel] = float4(spike_composite_bright(texel, size, base, even, odd, params,
+                                                   param_offset()), 1.0);
 }

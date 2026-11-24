@@ -34,6 +34,48 @@ public float3 sample_bilinear<I : IImage>(I img, no_diff float2 uv)
     return lerp(top, bot, f.y);
 }
 
+// 3x3 tent filter (Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare",
+// SIGGRAPH 2014): 9 bilinear taps one texel of img apart, weights 1 2 1 / 2 4 2 / 1 2 1, / 16.
+// The taps are one texel of the source apart (not of the target), so a single bright texel
+// spreads into a round blob instead of staying a bilinear block. The weights sum to 1, so light is
+// conserved (clamp-to-edge, as sample_bilinear). Decision log 2026-11-12.
+[Differentiable]
+public float3 sample_tent<I : IImage>(I img, no_diff float2 uv)
+{
+    float2 d = 1.0 / float2(img.size()); // one texel of img, in uv (geometry: size() is an int)
+    float3 s = 4.0 * sample_bilinear(img, uv);
+    s += 2.0 * (sample_bilinear(img, uv + float2(d.x, 0.0)) + sample_bilinear(img, uv - float2(d.x, 0.0))
+              + sample_bilinear(img, uv + float2(0.0, d.y)) + sample_bilinear(img, uv - float2(0.0, d.y)));
+    s += sample_bilinear(img, uv + d) + sample_bilinear(img, uv - d)
+       + sample_bilinear(img, uv + float2(d.x, -d.y)) + sample_bilinear(img, uv + float2(-d.x, d.y));
+    return s / 16.0;
+}
+
+// 5x5 binomial, [1 4 6 4 1]^2 / 256 (the tent applied twice, a Gaussian of sigma = 1 texel), from 9
+// bilinear taps by linear sampling: a tap 1.2 texels out with weight 5/16 blends texels 1 and 2 at
+// 0.8 / 0.2, giving their 4/16 and 1/16; the centre keeps 6/16. Separable weights (5, 6, 5) / 16 at
+// offsets -1.2, 0, 1.2 texels of img. Round, sums to 1, clamp-to-edge (as sample_tent). A point
+// keeps 14 % in its texel and puts 22 % at ~2 texels: the off-axis +-2 px shoulder (decision log
+// 2026-11-16).
+static const float BINOMIAL5_OFFSETS[3] = { -1.2, 0.0, 1.2 };
+static const float BINOMIAL5_WEIGHTS[3] = { 0.3125, 0.375, 0.3125 };
+
+[Differentiable]
+public float3 sample_binomial5<I : IImage>(I img, no_diff float2 uv)
+{
+    float2 d = 1.0 / float2(img.size()); // one texel of img, in uv
+    float3 s = float3(0.0);
+    [ForceUnroll]
+    for (int j = 0; j < 3; ++j)
+    {
+        [ForceUnroll]
+        for (int i = 0; i < 3; ++i)
+            s += (BINOMIAL5_WEIGHTS[i] * BINOMIAL5_WEIGHTS[j])
+                 * sample_bilinear(img, uv + float2(BINOMIAL5_OFFSETS[i], BINOMIAL5_OFFSETS[j]) * d);
+    }
+    return s;
+}
+
 // A texel, or 0 outside the image (a clamp-to-border sampler with a black border).
 [Differentiable]
 public float3 load_zero<I : IImage>(I img, no_diff int2 texel)

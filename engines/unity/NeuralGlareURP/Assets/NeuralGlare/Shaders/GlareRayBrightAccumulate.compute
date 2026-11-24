@@ -1,0 +1,7 @@
+#pragma kernel RayBrightAccumulate
+
+// Declared here, not in the generated HLSL: Unity only binds plain uniforms in $Globals
+int _ParamOffset;   // RayMLP's start (BrightMLP follows it)
+int _Ray;
+
+#include "../Generated/glare_RayBrightAccumulate.hlsl"

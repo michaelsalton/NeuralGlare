@@ -89,14 +89,24 @@ int4 level_mlp_sizes()
 }
 
 // One channel's (0 R, 1 G, 2 B) tap weights at screen positions uv, in upsample()'s order:
-// mip(x), mip(x + o), mip(x - o), up(low)(x). size is unused (the weights see uv only); it stays
-// so the Python callers don't change.
+// mip(x), mip(x + o), mip(x - o), up(low)(x); the own-mip taps after them are read by tap_weight
+// (a float4 can't hold six). size is unused (the weights see uv only); it stays so the Python
+// callers don't change.
 [Differentiable]
 float4 filter_weights(float2 uv, int2 size, DiffTensor<float, 1> params, int channel)
 {
     TensorParams p = { params };
     float3 w[TAPS] = weights(uv, p, 0);
     return float4(w[0][channel], w[1][channel], w[2][channel], w[3][channel]);
+}
+
+// One channel's weight of any tap, in upsample()'s order: 4 the own-mip tent (decision log
+// 2026-11-13), 5 the own-mip 5x5 binomial (2026-11-16).
+float tap_weight(float2 uv, DiffTensor<float, 1> params, int channel, int tap)
+{
+    TensorParams p = { params };
+    float3 w[TAPS] = weights(uv, p, 0);
+    return w[tap][channel];
 }
 
 
@@ -154,4 +164,77 @@ float3 spike_mix(float2 uv, DiffTensor<float, 1> params, int offset, int channel
     TensorParams p = { params };
     float3 w[MIX] = spike_weights(uv, p, offset);
     return float3(w[0][channel], w[1][channel], w[2][channel]);
+}
+
+// The per-ray cross filter (glare.slang ray_cross_accumulate): a ray's last-pass output filtered
+// across the ray, added to its family's sum. offset: where RayMLP starts in params.
+[Differentiable]
+float3 ray_cross_accumulate_pass(int2 texel, int2 out_size, DiffTensor<float, 3> src,
+                                 DiffTensor<float, 3> acc, DiffTensor<float, 1> params, int offset,
+                                 int ray)
+{
+    DiffTensorImage s = { src };
+    DiffTensorImage a = { acc };
+    TensorParams p = { params };
+    return ray_cross_accumulate(texel, out_size, s, a, p, offset, ray);
+}
+
+// The cross filter's tap weights (-1, 0, +1 px along n_k) for ray `ray` at field vectors v
+// (field_offset): the pre-fit regresses through it, and the views save it.
+[Differentiable]
+float3 cross_mix(float2 v, DiffTensor<float, 1> params, int offset, int ray)
+{
+    TensorParams p = { params };
+    float a[CROSS_TAPS] = cross_weights(v, p, offset, ray);
+    return float3(a[0], a[1], a[2]);
+}
+
+// RayMLP's (inputs, hidden, outputs, PARAM_COUNT): the cross section of the parameter buffer,
+// after the spike section: [levels x LevelMLP][SpikeMLP][PROFILE_COUNT logits][RayMLP].
+int4 ray_mlp_sizes()
+{
+    return int4(RayMLP.IN_SIZE, RayMLP.HIDDEN_SIZE, RayMLP.OUT_SIZE, RayMLP.PARAM_COUNT);
+}
+
+// Per-ray brightness (glare.slang ray_bright_accumulate, decision log 2026-11-19): the cross-filtered
+// ray times e^{z_k}, added to its family's sum. offset: RayMLP's start (BrightMLP follows it).
+[Differentiable]
+float3 ray_bright_accumulate_pass(int2 texel, int2 out_size, DiffTensor<float, 3> src,
+                                  DiffTensor<float, 3> acc, DiffTensor<float, 1> params, int offset,
+                                  int ray)
+{
+    DiffTensorImage s = { src };
+    DiffTensorImage a = { acc };
+    TensorParams p = { params };
+    return ray_bright_accumulate(texel, out_size, s, a, p, offset, ray);
+}
+
+// The final frame with per-ray brightness: each family divided by its normaliser, not by 7.
+// offset: SpikeMLP's start, as spike_pass.
+[Differentiable]
+float3 spike_bright_pass(int2 texel, int2 out_size, DiffTensor<float, 3> base,
+                         DiffTensor<float, 3> even, DiffTensor<float, 3> odd,
+                         DiffTensor<float, 1> params, int offset)
+{
+    DiffTensorImage b = { base };
+    DiffTensorImage e = { even };
+    DiffTensorImage o = { odd };
+    TensorParams p = { params };
+    return spike_composite_bright(texel, out_size, b, e, o, p, offset);
+}
+
+// Ray `ray`'s gain g_k = 7 e^{z_k} / Z at field vectors v (field_offset): the pre-fit regresses
+// through it, and the views save it. offset: BrightMLP's start.
+[Differentiable]
+float ray_gain(float2 v, DiffTensor<float, 1> params, int offset, int ray)
+{
+    TensorParams p = { params };
+    return bright_gain(v, p, offset, ray);
+}
+
+// BrightMLP's (inputs, hidden, outputs, PARAM_COUNT): after RayMLP,
+// [levels x LevelMLP][SpikeMLP][PROFILE_COUNT logits][RayMLP][BrightMLP].
+int4 bright_mlp_sizes()
+{
+    return int4(BrightMLP.IN_SIZE, BrightMLP.HIDDEN_SIZE, BrightMLP.OUT_SIZE, BrightMLP.PARAM_COUNT);
 }
