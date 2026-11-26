@@ -14,7 +14,7 @@ SOURCE="$ROOT/slang/engine_glare.slang"
 UNITY_OUT="$ROOT/engines/unity/NeuralGlareURP/Assets/NeuralGlare/Generated"
 UNREAL_OUT="$ROOT/engines/unreal/NeuralGlarePlugin/Generated"
 KERNELS=(Prefilter BlurH BlurV Upsample Streak StreakAccumulate RayCrossAccumulate RayBrightAccumulate
-         SpikeComposite SpikeCompositeBright)
+         SpikeComposite SpikeCompositeBright StreakToStack SpikeCompositeStack)
 
 version="$("$SLANGC" -v 2>&1 | tr -d '\r')"
 if [[ "$version" != "$EXPECTED_VERSION" ]]; then

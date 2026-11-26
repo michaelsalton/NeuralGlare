@@ -16,7 +16,9 @@ Texture2D<float4 > _SpikeEven : register(t3);
 
 Texture2D<float4 > _SpikeOdd : register(t4);
 
-StructuredBuffer<float > _GlareParams : register(t5);
+StructuredBuffer<float > _GlareParams : register(t6);
+
+SamplerState sampler_LinearClamp : register(s0);
 
 float BufferParams_get_0(StructuredBuffer<float > this_buf_0, int index_0)
 {
@@ -196,41 +198,32 @@ int2 TextureImage_size_0(Texture2D<float4 > this_tex_0)
     return int2(int(w_2), int(h_1));
 }
 
-float3 TextureImage_load_0(Texture2D<float4 > this_tex_1, int2 texel_0)
+float3 TextureImage_bilinear_0(Texture2D<float4 > this_tex_1, float2 p_0)
 {
-    return this_tex_1.Load(int3(texel_0, int(0))).xyz;
+    return this_tex_1.SampleLevel(sampler_LinearClamp, (p_0 + 0.5f) / float2(TextureImage_size_0(this_tex_1)), 0.0f).xyz;
 }
 
 float3 sample_bilinear_0(Texture2D<float4 > img_tex_0, float2 uv_1)
 {
-    int2 _S44 = TextureImage_size_0(img_tex_0);
-    float2 p_0 = uv_1 * float2(_S44) - 0.5f;
-    float2 p0_0 = floor(p_0);
-    float2 f_0 = p_0 - p0_0;
-    int2 _S45 = int2(p0_0);
-    int2 _S46 = (int2)int(0);
-    int2 _S47 = _S44 - int(1);
-    int2 i0_0 = clamp(_S45, _S46, _S47);
-    int2 i1_0 = clamp(_S45 + int(1), _S46, _S47);
-    int _S48 = i0_0.x;
-    int _S49 = i0_0.y;
-    int _S50 = i1_0.x;
-    float3 _S51 = (float3)f_0.x;
-    int _S52 = i1_0.y;
-    return lerp(lerp(TextureImage_load_0(img_tex_0, int2(_S48, _S49)), TextureImage_load_0(img_tex_0, int2(_S50, _S49)), _S51), lerp(TextureImage_load_0(img_tex_0, int2(_S48, _S52)), TextureImage_load_0(img_tex_0, int2(_S50, _S52)), _S51), (float3)f_0.y);
+    return TextureImage_bilinear_0(img_tex_0, uv_1 * float2(TextureImage_size_0(img_tex_0)) - 0.5f);
 }
 
-float2 texel_uv_0(int2 texel_1, int2 size_0)
+float2 texel_uv_0(int2 texel_0, int2 size_0)
 {
-    return (float2(texel_1) + 0.5f) / float2(size_0);
+    return (float2(texel_0) + 0.5f) / float2(size_0);
+}
+
+float3 TextureImage_load_0(Texture2D<float4 > this_tex_2, int2 texel_1)
+{
+    return this_tex_2.Load(int3(texel_1, int(0))).xyz;
 }
 
 float3 spike_composite_0(int2 texel_2, int2 out_size_0, Texture2D<float4 > base_tex_0, Texture2D<float4 > even_tex_0, Texture2D<float4 > odd_tex_0, StructuredBuffer<float > params_buf_4, int offset_4)
 {
     float2 uv_2 = texel_uv_0(texel_2, out_size_0);
-    float3  _S53[int(3)];
-    spike_weights_0(uv_2, params_buf_4, offset_4, _S53);
-    return _S53[int(0)] * TextureImage_load_0(base_tex_0, texel_2) + (_S53[int(1)] * sample_bilinear_0(even_tex_0, uv_2) + _S53[int(2)] * sample_bilinear_0(odd_tex_0, uv_2)) * 0.1428571492433548f;
+    float3  _S44[int(3)];
+    spike_weights_0(uv_2, params_buf_4, offset_4, _S44);
+    return _S44[int(0)] * TextureImage_load_0(base_tex_0, texel_2) + (_S44[int(1)] * sample_bilinear_0(even_tex_0, uv_2) + _S44[int(2)] * sample_bilinear_0(odd_tex_0, uv_2)) * 0.1428571492433548f;
 }
 
 int2 target_size_0()
@@ -245,14 +238,14 @@ int2 target_size_0()
 void SpikeComposite(uint3 id_0 : SV_DispatchThreadID)
 {
     int2 size_1 = target_size_0();
-    int2 _S54 = int2(id_0.xy);
-    if(any(_S54 >= size_1))
+    int2 _S45 = int2(id_0.xy);
+    if(any(_S45 >= size_1))
     {
         return;
     }
-    uint2 _S55 = uint2(_S54);
-    int _S56 = ((_ParamOffset));
-    _Target[_S55] = float4(spike_composite_0(_S54, size_1, _Source, _SpikeEven, _SpikeOdd, _GlareParams, _S56), 1.0f);
+    uint2 _S46 = uint2(_S45);
+    int _S47 = ((_ParamOffset));
+    _Target[_S46] = float4(spike_composite_0(_S45, size_1, _Source, _SpikeEven, _SpikeOdd, _GlareParams, _S47), 1.0f);
     return;
 }
 

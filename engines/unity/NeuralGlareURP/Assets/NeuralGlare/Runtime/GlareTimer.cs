@@ -34,6 +34,7 @@ namespace NeuralGlare
             public string unityVersion, graphicsDeviceType, graphicsDeviceName, graphicsDeviceVersion, date;
             public string weights;     // the weight file loaded (NeuralGlareFeature.WeightsSource)
             public bool developmentBuild;
+            public bool rayStack;      // the ray-stack path ran (efficiency step 1c; NeuralGlareFeature.RayStackUsed)
             public int screenWidth, screenHeight, glareWidth, glareHeight;
             public float warmupSeconds, windowSeconds;
             public MarkerResult[] markers;
@@ -106,6 +107,7 @@ namespace NeuralGlare
                 date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 weights = NeuralGlareFeature.WeightsSource,
                 developmentBuild = Debug.isDebugBuild,
+                rayStack = NeuralGlareFeature.RayStackUsed,
                 screenWidth = Screen.width,
                 screenHeight = Screen.height,
                 glareWidth = GlareChain.LastSize.x,

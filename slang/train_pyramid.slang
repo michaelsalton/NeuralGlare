@@ -9,6 +9,8 @@ struct TensorImage : IImage
 
     int2 size() { return int2(tensor.shape[1], tensor.shape[0]); }
     [Differentiable] float3 load(int2 texel) { return no_diff tensor.load(texel); }
+    [Differentiable] float3 bilinear(no_diff float2 p) { return bilinear_from_loads(this, p); }
+    [Differentiable] float3 bilinear_zero(no_diff float2 p) { return bilinear_zero_from_loads(this, p); }
 }
 
 float3 prefilter_pass(int2 texel, int2 out_size, Tensor<float3, 2> src)

@@ -21,7 +21,11 @@ namespace NeuralGlare
         public string spikeSource;                                  // "mip0" or "input"
         public int crossParamCount, crossTaps;                      // 0 without the cross filter
         public int brightParamCount;                                // 0 without per-ray brightness
+        public string rayStorage;                                   // "fp16": streak targets (rayA / rayB) RGBA16F; missing: fp32
+                                                                    // (efficiency step 1a, decision log 2026-11-24; neuralglare.storage)
 
+        public RenderTextureFormat RayFormat =>
+            rayStorage == "fp16" ? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGBFloat;
         public int SpikeFloats => spikeParamCount > 0 ? spikeParamCount + profileCount : 0;
         public int FloatCount => levels * paramCount + SpikeFloats + crossParamCount + brightParamCount;
 
@@ -40,6 +44,12 @@ namespace NeuralGlare
                 throw new InvalidDataException($"{source}: cross filter without the spike term");
             if (layout.brightParamCount > 0 && layout.crossParamCount <= 0)
                 throw new InvalidDataException($"{source}: per-ray brightness without the cross filter");
+            if (!string.IsNullOrEmpty(layout.rayStorage) && layout.rayStorage != "fp16" && layout.rayStorage != "fp32")
+                throw new InvalidDataException($"{source}: rayStorage \"{layout.rayStorage}\", expected fp16 or fp32");
+            // glare.slang PASSES / PROFILE_COUNT: 3 passes of 4 taps reach 0..63 texels. A 2a layout
+            // (streakTaps 8: 2 passes, 32 logits) fails here; JsonUtility ignores the key itself.
+            if (layout.spikeParamCount > 0 && (layout.passes != 3 || layout.profileCount != 24))
+                throw new InvalidDataException($"{source}: {layout.passes} passes and {layout.profileCount} profile logits, expected 3 and 24 (glare.slang)");
             return layout;
         }
 
@@ -60,7 +70,9 @@ namespace NeuralGlare
         public ComputeShader prefilter, blurH, blurV, upsample, streak, streakAccumulate,
                              rayCrossAccumulate, rayBrightAccumulate, spikeComposite,
                              spikeCompositeBright;
-
+        // Optional: the ray-stack path (efficiency step 1c); without them the per-ray passes run.
+        public ComputeShader streakToStack, spikeCompositeStack;
+        public bool HasRayStack => streakToStack != null && spikeCompositeStack != null;
         public bool Complete => prefilter != null && blurH != null && blurV != null && upsample != null
                                 && streak != null && streakAccumulate != null && rayCrossAccumulate != null
                                 && rayBrightAccumulate != null && spikeComposite != null
@@ -84,9 +96,12 @@ namespace NeuralGlare
                             ParamOffsetId = Shader.PropertyToID("_ParamOffset"),
                             RayId = Shader.PropertyToID("_Ray"),
                             StageId = Shader.PropertyToID("_Stage"),
+                            RayScaleId = Shader.PropertyToID("_RayScale"),
                             AccumId = Shader.PropertyToID("_Accum"),
                             SpikeEvenId = Shader.PropertyToID("_SpikeEven"),
-                            SpikeOddId = Shader.PropertyToID("_SpikeOdd");
+                            SpikeOddId = Shader.PropertyToID("_SpikeOdd"),
+                            RayStackId = Shader.PropertyToID("_RayStack"),
+                            RayStackOutId = Shader.PropertyToID("_RayStackOut");
 
         readonly GlareShaders shaders;
         readonly GlareLayout layout;
@@ -95,9 +110,11 @@ namespace NeuralGlare
         RenderTexture[] mips = Array.Empty<RenderTexture>(), blurred = Array.Empty<RenderTexture>(),
                         ups = Array.Empty<RenderTexture>();
         RenderTexture full, rayA, rayB, spikes;
+        RenderTexture rayStack;                                          // RayStack only
         readonly RenderTexture[][] families = new RenderTexture[2][];    // [family][ping-pong copy]
 
-        public GlareChain(GlareShaders shaders, GlareLayout layout, float[] weights)
+        // rayStack: use the ray-stack path where it applies (RayStack says whether it does).
+        public GlareChain(GlareShaders shaders, GlareLayout layout, float[] weights, bool rayStack = true)
         {
             if (!shaders.Complete)
                 throw new ArgumentException("GlareShaders: a compute shader is missing");
@@ -105,16 +122,31 @@ namespace NeuralGlare
                 throw new ArgumentException($"{weights.Length} weights, the layout says {layout.FloatCount}");
             this.shaders = shaders;
             this.layout = layout;
+            // Efficiency step 1c (decision log 2026-11-24): every ray's last streak pass into a slice
+            // of one texture array, and one composite pass does the cross filter, brightness and
+            // family sums (glare.slang spike_composite_stack). Needs brightness, and the rays at the
+            // output's resolution (the composite reads the stack at its own texels).
+            RayStack = rayStack && shaders.HasRayStack && layout.brightParamCount > 0
+                       && layout.spikeSource == "input";
             parameters = new ComputeBuffer(weights.Length, sizeof(float));
             parameters.SetData(weights);
         }
 
+        // Pre-exposure k of the rays (glare.slang streak; decision log 2026-11-24): the light is
+        // scaled by k before the first streak pass stores it and by 1/k when a ray joins its family's
+        // float32 sum, so fp16 streak targets hold a real sun. The output doesn't depend on k (exactly,
+        // for a power of two). URP has no exposure to take it from, so it is a fixed power of two by
+        // default; a game would set it per frame from its exposure. train_points.py RAY_PRE_EXPOSURE.
+        public const float DefaultPreExposure = 1f / 16f;
+        public float PreExposure { get; set; } = DefaultPreExposure;
+
+        public bool RayStack { get; }                           // the ray-stack path (step 1c) runs
         public bool HasFullLevel { get; private set; }
         public bool HasSpikes => layout.spikeParamCount > 0;
         public RenderTexture[] Mips => mips;
         public RenderTexture[] Ups => ups;
         public RenderTexture Full => full;
-        public RenderTexture FamilyEven { get; private set; }   // valid after Record
+        public RenderTexture FamilyEven { get; private set; }   // valid after Record; null with RayStack
         public RenderTexture FamilyOdd { get; private set; }
         public RenderTexture Output => HasSpikes ? spikes : HasFullLevel ? full : ups[0];
 
@@ -150,10 +182,18 @@ namespace NeuralGlare
             if (HasSpikes)
             {
                 Vector2Int raySize = layout.spikeSource == "input" ? size : sizes[0];
-                rayA = Target(raySize, "rayA");
-                rayB = Target(raySize, "rayB");
-                families[0] = new[] { Target(raySize, "even0"), Target(raySize, "even1") };
-                families[1] = new[] { Target(raySize, "odd0"), Target(raySize, "odd1") };
+                // Streak outputs in the layout's format (train_points.py stored() rounds the same);
+                // family sums stay float32: with brightness they hold e^z times each ray before the
+                // composite normalises, up to ~9x the source, past fp16's 65504
+                rayA = Target(raySize, "rayA", layout.RayFormat);
+                rayB = Target(raySize, "rayB", layout.RayFormat);
+                if (RayStack)       // the last streak passes, one slice per ray; no family sums stored
+                    rayStack = Target(raySize, "rayStack", layout.RayFormat, layout.rays);
+                else
+                {
+                    families[0] = new[] { Target(raySize, "even0"), Target(raySize, "even1") };
+                    families[1] = new[] { Target(raySize, "odd0"), Target(raySize, "odd1") };
+                }
                 spikes = Target(size, "spikes");
             }
         }
@@ -201,10 +241,26 @@ namespace NeuralGlare
             if (!HasSpikes)
                 return;
             using (new ProfilingScope(cmd, Rays))
-                RecordRays(cmd, layout.spikeSource == "input" ? source : mips[0]);
+            {
+                RenderTargetIdentifier raySource = layout.spikeSource == "input" ? source : mips[0];
+                if (RayStack)
+                    RecordRayStack(cmd, raySource);
+                else
+                    RecordRays(cmd, raySource);
+            }
 
             using (new ProfilingScope(cmd, Composite))
             {
+                if (RayStack)
+                {
+                    ComputeShader stacked = shaders.spikeCompositeStack;
+                    cmd.SetComputeBufferParam(stacked, 0, ParamsId, parameters);
+                    cmd.SetComputeTextureParam(stacked, 0, RayStackId, rayStack);
+                    cmd.SetComputeIntParam(stacked, ParamOffsetId, layout.levels * layout.paramCount);
+                    cmd.SetComputeFloatParam(stacked, RayScaleId, RayScale(PreExposure, false, true));
+                    Dispatch(cmd, stacked, full, spikes);
+                    return;
+                }
                 ComputeShader composite = layout.brightParamCount > 0 ? shaders.spikeCompositeBright
                                                                       : shaders.spikeComposite;
                 cmd.SetComputeBufferParam(composite, 0, ParamsId, parameters);
@@ -254,6 +310,8 @@ namespace NeuralGlare
                     ComputeShader shader = accumulate ? shaders.streakAccumulate : shaders.streak;
                     cmd.SetComputeIntParam(shader, RayId, ray);
                     cmd.SetComputeIntParam(shader, StageId, stage);
+                    cmd.SetComputeFloatParam(shader, RayScaleId,
+                                             RayScale(PreExposure, stage == 0, accumulate));
                     RenderTexture next;
                     if (accumulate)
                     {
@@ -270,6 +328,7 @@ namespace NeuralGlare
                 if (cross)
                 {
                     cmd.SetComputeIntParam(crossPass, RayId, ray);
+                    cmd.SetComputeFloatParam(crossPass, RayScaleId, RayScale(PreExposure, false, true));
                     cmd.SetComputeTextureParam(crossPass, 0, AccumId, families[f][current[f]]);
                     RenderTexture next = families[f][1 - current[f]];
                     Dispatch(cmd, crossPass, last, next);
@@ -280,6 +339,51 @@ namespace NeuralGlare
             FamilyOdd = families[1][current[1]];
         }
 
+        // The ray-stack path (step 1c): each ray's streak passes, the last one into slice `ray` of
+        // rayStack. The cross filter, brightness and family sums happen in the composite.
+        void RecordRayStack(CommandBuffer cmd, RenderTargetIdentifier source)
+        {
+            int profile = layout.levels * layout.paramCount + layout.spikeParamCount;
+            ComputeShader streak = shaders.streak, toStack = shaders.streakToStack;
+            foreach (ComputeShader shader in new[] { streak, toStack })
+            {
+                cmd.SetComputeBufferParam(shader, 0, ParamsId, parameters);
+                cmd.SetComputeIntParam(shader, ParamOffsetId, profile);
+            }
+            cmd.SetComputeTextureParam(toStack, 0, RayStackOutId, rayStack);
+
+            for (int ray = 0; ray < layout.rays; ++ray)
+            {
+                RenderTargetIdentifier s = source;
+                RenderTexture last = null;
+                for (int stage = 0; stage < layout.passes; ++stage)
+                {
+                    bool final = stage == layout.passes - 1;
+                    ComputeShader shader = final ? toStack : streak;
+                    cmd.SetComputeIntParam(shader, RayId, ray);
+                    cmd.SetComputeIntParam(shader, StageId, stage);
+                    cmd.SetComputeFloatParam(shader, RayScaleId, RayScale(PreExposure, stage == 0, false));
+                    if (final)
+                    {
+                        // _Target is unused by StreakToStack; the group count comes from the stack
+                        cmd.SetComputeTextureParam(shader, 0, SourceId, s);
+                        cmd.DispatchCompute(shader, 0, (rayStack.width + 7) / 8, (rayStack.height + 7) / 8, 1);
+                        break;
+                    }
+                    RenderTexture next = last == rayA ? rayB : rayA;
+                    Dispatch(cmd, shader, s, next);
+                    s = next;
+                    last = next;
+                }
+            }
+            FamilyEven = FamilyOdd = null;
+        }
+
+        // A ray pass's scale (glare.slang streak): k if it reads the source, 1/k if it writes the
+        // family sum, both if it does both. As train_points.py ray_scale().
+        static float RayScale(float k, bool readsSource, bool writesFamily) =>
+            (readsSource ? k : 1f) * (writesFamily ? 1f / k : 1f);
+
         // Target size comes from _Target itself (GetDimensions in the kernels), 8x8 thread groups.
         static void Dispatch(CommandBuffer cmd, ComputeShader shader, RenderTargetIdentifier source,
                              RenderTexture target)
@@ -289,10 +393,14 @@ namespace NeuralGlare
             cmd.DispatchCompute(shader, 0, (target.width + 7) / 8, (target.height + 7) / 8, 1);
         }
 
-        static RenderTexture Target(Vector2Int size, string name)
+        // slices > 0: a texture array of that many slices (the ray stack).
+        static RenderTexture Target(Vector2Int size, string name,
+                                    RenderTextureFormat format = RenderTextureFormat.ARGBFloat,
+                                    int slices = 0)
         {
-            var rt = new RenderTexture(size.x, size.y, 0, RenderTextureFormat.ARGBFloat,
-                                       RenderTextureReadWrite.Linear)
+            if (!SystemInfo.SupportsRandomWriteOnRenderTextureFormat(format))
+                throw new NotSupportedException($"{name}: {format} can't be a UAV on this GPU");
+            var rt = new RenderTexture(size.x, size.y, 0, format, RenderTextureReadWrite.Linear)
             {
                 name = "NeuralGlare." + name,
                 enableRandomWrite = true,
@@ -300,6 +408,11 @@ namespace NeuralGlare
                 filterMode = FilterMode.Point,
                 hideFlags = HideFlags.HideAndDontSave,
             };
+            if (slices > 0)
+            {
+                rt.dimension = TextureDimension.Tex2DArray;
+                rt.volumeDepth = slices;
+            }
             rt.Create();
             return rt;
         }
@@ -342,7 +455,8 @@ namespace NeuralGlare
             foreach (RenderTexture rt in mips) Free(rt);
             foreach (RenderTexture rt in blurred) Free(rt);
             foreach (RenderTexture rt in ups) Free(rt);
-            Free(full); Free(rayA); Free(rayB); Free(spikes);
+            Free(full); Free(rayA); Free(rayB); Free(spikes); Free(rayStack);
+            rayStack = null;
             foreach (RenderTexture[] pair in families)
                 if (pair != null)
                     foreach (RenderTexture rt in pair) Free(rt);

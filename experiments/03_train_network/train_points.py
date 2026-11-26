@@ -105,6 +105,9 @@ on the training frames' PSFs (cross_prefit.py) before training.
     uv run python experiments/03_train_network/train_points.py --run default --study ray_bright --arch bright --ee-weight 0.02
                                                     # per-ray brightness (2026-11-19)
 
+--steps 0 exports the untrained init (tag _init), for a timing-only test (cost doesn't depend on
+the weights; efficiency step 2a, decision log 2026-11-24).
+
 --arch bright (2026-11-19) is cross plus a gain per ray: g_k = 7 softmax over the family's 7 rays
 of BrightMLP(e_k . v, n_k . v, family), so light moves between a family's rays (SpikeMLP still
 sets each family's total). Each ray's cross pass adds e^{z_k} times the ray and the composite
@@ -131,6 +134,8 @@ from neuralglare.baselines.pyramid_bloom import URPBloomParams, shader_constants
 from neuralglare.eval import metrics as m
 from neuralglare.io import read_hdr
 from neuralglare.paths import REFS, RUNS, psf_bank_path, run_dir
+from neuralglare.storage import FORMATS as RAY_STORAGES
+from neuralglare.storage import store_as
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "experiments" / "01_gap_study"))
@@ -204,6 +209,34 @@ VIEW_PX = 160                       # views.py: crop size around each view sourc
 BLEND_GRID = (27, 48)               # views.py: (rows, cols) of the screen grid for the blend maps
 CHANNELS = 3                        # glare.slang's softmax_rgb: logits channel-major, R, G, B
 VIEW_CHANNEL = 1                    # the channel saved as `blend` / `spike_mix` (G), as before
+RAY_STORE = "fp32"                  # the format the engine stores the streak passes' outputs in (rayA /
+                                    # rayB; family sums stay float32, spikes()); a name from
+                                    # neuralglare.storage.FORMATS; --ray-storage, efficiency
+                                    # step 1a (2026-11-24)
+RAY_STACK = True                    # brightness at the output's resolution: the composite reads every
+                                    # ray's last streak pass from a stack and forms the families itself
+                                    # (glare.slang spike_composite_stack; efficiency step 1c, decision
+                                    # log 2026-11-24), as GlareChain.RayStack. Same arithmetic as the
+                                    # per-ray passes (test_spikes.py test_stack_*)
+RAY_PRE_EXPOSURE = 2.0 ** -4        # the rays' pre-exposure k (glare.slang streak; decision log
+                                    # 2026-11-24): a real sun (3.8e5) fits fp16's 65504, the 1e-3 loss
+                                    # floor of a 1e4 source lands at fp16's smallest normal; a power
+                                    # of two, so float32 results don't depend on it. As GlareChain's
+                                    # DefaultPreExposure
+
+
+def ray_scale(k, reads_source, writes_family):
+    """A ray pass's scale (glare.slang streak): k if it reads the source, 1/k if it writes the
+    family sum, both if it does both. As GlareChain.RayScale."""
+    return (k if reads_source else 1.0) * (1.0 / k if writes_family else 1.0)
+
+
+def stored(x, store):
+    """x as the engine stores it between passes (format name `store`), read back as float32:
+    rounded toward zero as the RTX 2070's UAV stores on D3D12 (D3D allows that or round-to-nearest;
+    decision log 2026-11-24: modelling round-to-nearest left Unity's fp16 ray families 0.1 % darker
+    on every channel). neuralglare.storage.store_as; straight-through gradient."""
+    return store_as(x, store)
 
 
 def pyramid(mips):
@@ -313,6 +346,30 @@ def bright_init(gen, module):
     return w
 
 
+def load_bank(run):
+    """A run's point-grid split (split.toml phase2_points), PSF bank and frame shape (H, W, 3)."""
+    split = tomllib.loads((ROOT / "configs" / "split.toml").read_text())["phase2_points"]
+    with np.load(ROOT / psf_bank_path(run)) as z:
+        bank = {k: z[k] for k in z.files}
+    cam = json.loads(str(bank["config"]))["camera"]
+    return split, bank, (cam["height_px"], cam["width_px"], 3)
+
+
+def eval_frames(run, split, bank, shape):
+    """The frames every run is scored on, as main() scores them and unity_parity.py score scores
+    the engine's output (efficiency step 1e, decision log 2026-11-24): {"val": (img, ref,
+    positions), "test": (img, ref, positions)}. The validation frame is held out of the training
+    frames (split.toml val_frame); the test frame is the Phase 0 point grid and its exact
+    reference."""
+    val_sel = train_frames(bank, *split["train_grid"])[split["val_frame"]]
+    val_img, val_ref = render(bank, val_sel, shape)
+    test_img = read_hdr(str(ROOT / "data" / "inputs" / f"{split['test']}.exr"))[..., :3]
+    test_ref = read_hdr(str(ROOT / REFS[run] / f"{split['test']}_ref_exact.exr"))[..., :3]
+    return {"val": (val_img, val_ref, [tuple(p) for p in bank["pos_px"][val_sel]]),
+            "test": (test_img, test_ref,
+                     [tuple(p) for p in bank["pos_px"][bank["split"] == "test"]])}
+
+
 def render(bank, sel, shape):
     """Input frame (sources at INTENSITY) and its exact reference, from the bank's PSFs."""
     img = np.zeros(shape, np.float32)
@@ -333,15 +390,28 @@ def level(module, mip, low, params, k):
                                       offset=k * level_mlp(module).param_count)
 
 
-def spikes(module, source, base, params, offset, families=False, cross=False, bright=False):
+def spikes(module, source, base, params, offset, families=False, cross=False, bright=False,
+           store=None, pre_exposure=RAY_PRE_EXPOSURE, stack=None):
     """The spike term (glare.slang): every ray streaked from source (mip 0 or the input frame,
     SPIKE_SOURCE) in its passes, each family's rays summed, then mixed into the full-resolution
     output base by SpikeMLP. offset: where the spike section starts in params (SpikeMLP, then the
     profile logits). cross: each ray filtered across itself after its last pass (RayMLP, after
     the profile logits; decision log 2026-11-19). bright: and weighted by e^{z_k} (BrightMLP,
     after RayMLP), each family divided by its normaliser in the composite. families: also return
-    the two family sums (even, odd), for unity_parity.py."""
+    the two family sums (even, odd), for unity_parity.py. store: the format each streak pass's
+    output is kept in, as the engine's rayA / rayB (None: RAY_STORE). The family sums and the
+    composite stay float32, as Unity's targets: with brightness a family sum holds e^{z_k} times
+    each ray before the composite divides by the normaliser, up to ~9x the source (9.1e4 for the
+    1e4 point grid), past fp16's 65504. pre_exposure: the rays' k (ray_scale), so a stored streak
+    holds k times the light; the engine's must match for parity (unity_run.json preExposure).
+    stack: the ray-stack path (RAY_STACK when None; only with brightness and source at base's
+    resolution): every ray's last pass stored, stacked, and the composite does the cross filter,
+    brightness and family sums. No family sums exist then: families returns None for them."""
     assert cross or not bright, "per-ray brightness needs the cross filter"
+    stackable = bright and source.shape == base.shape
+    stack = (RAY_STACK and stackable) if stack is None else stack
+    assert stackable or not stack, "the ray stack needs brightness and rays at base's resolution"
+    store = store or RAY_STORE
     lay = spike_layout(module)
     profile = offset + lay.net.param_count
     cross_offset = profile + lay.profile_count
@@ -352,21 +422,34 @@ def spikes(module, source, base, params, offset, families=False, cross=False, br
         # slangpy 0.43.1 on Vulkan can't run ray_cross_accumulate_pass's backward with a DiffTensor
         # `acc` that has no gradient buffer (as glare()'s lone level); the zeros' gradient is unused
         acc = [a.requires_grad_() for a in acc]
+    k = pre_exposure
+    last = []                                       # stack: each ray's last pass, as stored
     for ray in range(lay.rays):
         s = source
         for stage in range(lay.passes if cross else lay.passes - 1):
-            s = module.streak_pass(texel=grid, src=s, params=params, profile=profile, ray=ray,
-                                   stage=stage)
-        if cross:                                   # the cross pass does the accumulating
+            s = stored(module.streak_pass(texel=grid, src=s, params=params, profile=profile,
+                                          ray=ray, stage=stage,
+                                          scale=ray_scale(k, stage == 0, False)),
+                       store)
+        if stack:
+            last.append(s)
+        elif cross:                                   # the cross pass does the accumulating
             accumulate = (module.ray_bright_accumulate_pass if bright
                           else module.ray_cross_accumulate_pass)
             acc[ray % 2] = accumulate(texel=grid, out_size=spy.int2(w, h), src=s, acc=acc[ray % 2],
-                                      params=params, offset=cross_offset, ray=ray)
+                                      params=params, offset=cross_offset, ray=ray,
+                                      scale=ray_scale(k, False, True))
         else:
             acc[ray % 2] = module.streak_accumulate_pass(texel=grid, src=s, acc=acc[ray % 2],
                                                          params=params, profile=profile, ray=ray,
-                                                         stage=lay.passes - 1)
+                                                         stage=lay.passes - 1,
+                                                         scale=ray_scale(k, lay.passes == 1, True))
     h, w = base.shape[:2]
+    if stack:                                       # the stack is stored as the streaks (rayStack)
+        out = module.spike_stack_pass(texel=spy.grid((h, w)), out_size=spy.int2(w, h), base=base,
+                                      rays=torch.stack(last), params=params, offset=offset,
+                                      scale=ray_scale(k, False, True))
+        return (out, None) if families else out
     composite = module.spike_bright_pass if bright else module.spike_pass
     out = composite(texel=spy.grid((h, w)), out_size=spy.int2(w, h), base=base,
                     even=acc[0], odd=acc[1], params=params, offset=offset)
@@ -696,6 +779,9 @@ def main():
     ap.add_argument("--ee-weight", type=float, default=0.0,
                     help="weight of the core (encircled-energy) loss; 0 = the log loss alone "
                          "(study core_loss, decision log 2026-11-16)")
+    ap.add_argument("--ray-storage", choices=tuple(RAY_STORAGES), default="fp32",
+                    help="format the engine stores the ray intermediates in (efficiency step 1a, "
+                         "decision log 2026-11-24); fp16 rounds them as the GPU does")
     args = ap.parse_args()
     assert args.t_low is None or (args.init == "fitted" and args.mips >= 2), \
         "--t-low needs --init fitted and a pyramid level (--mips >= 2)"
@@ -714,12 +800,15 @@ def main():
         tag += f"_mips{args.mips}"
     if args.seed != 0:
         tag += f"_seed{args.seed}"
+    if args.steps == 0:                 # the untrained init (e.g. exported for a timing-only test)
+        tag += "_init"
+    fit_tag = tag                       # the trained weights' name; --rescore loads these
+    if args.ray_storage != "fp32":
+        tag += f"_ray{args.ray_storage}"
+    global RAY_STORE
+    RAY_STORE = args.ray_storage
 
-    split = tomllib.loads((ROOT / "configs" / "split.toml").read_text())["phase2_points"]
-    with np.load(ROOT / psf_bank_path(args.run)) as z:
-        bank = {k: z[k] for k in z.files}
-    cam = json.loads(str(bank["config"]))["camera"]
-    shape = (cam["height_px"], cam["width_px"], 3)
+    split, bank, shape = load_bank(args.run)
     phase0, phase0_fit, gap = strongest_baselines(args.run)
     size, ppd = gap["window_px"], gap["flip_ppd"]
     assert size == 2 * bank["psf"].shape[1], "window differs from the gap study's"
@@ -734,7 +823,8 @@ def main():
 
     frames = train_frames(bank, *split["train_grid"])
     val_sel = frames.pop(split["val_frame"])
-    val_img, val_ref = render(bank, val_sel, shape)
+    scored = eval_frames(args.run, split, bank, shape)          # shared with unity_parity.py score
+    val_img, val_ref, val_pos = scored["val"]
     val_data = [prepare(module, val_img, val_ref, mips=args.mips)]
     data = [prepare(module, *render(bank, sel, shape), mips=args.mips) for sel in frames]
     n_levels = level_count(data[0][0])              # pyramid levels + the full-resolution one
@@ -780,8 +870,8 @@ def main():
     fits = out("fits")
     eval_path = out("eval") / f"train_points{tag}_eval.json"
     if args.rescore:
-        params = torch.from_numpy(np.load(fits / f"train_points{tag}_params.npy")).cuda()
-        old = json.loads(eval_path.read_text())
+        params = torch.from_numpy(np.load(fits / f"train_points{fit_tag}_params.npy")).cuda()
+        old = json.loads((out("eval") / f"train_points{fit_tag}_eval.json").read_text())
         assert (old["args"]["steps"] == args.steps and old["args"]["seed"] == args.seed
                 and old["args"].get("mips", LEGACY_MIPS) == args.mips), (
             "pass the run's own --steps / --seed / --mips")
@@ -789,10 +879,7 @@ def main():
     else:
         params, curve, seconds = train(module, data, val_data, init, args, rng)
 
-    test_img = read_hdr(str(ROOT / "data" / "inputs" / "pointgrid.exr"))[..., :3]
-    test_ref = read_hdr(str(ROOT / REFS[args.run] / "pointgrid_ref_exact.exr"))[..., :3]
-    test_pos = [tuple(p) for p in bank["pos_px"][bank["split"] == "test"]]
-    val_pos = [tuple(p) for p in bank["pos_px"][val_sel]]
+    test_img, test_ref, test_pos = scored["test"]
     results = {}
     for name, p in (("init", init.cuda()), ("trained", params)):
         records, negative = evaluate(module, p, test_img, test_ref, test_pos, size, ppd,
@@ -818,7 +905,8 @@ def main():
     params.cpu().numpy().astype("<f4").tofile(export / f"glare_params{tag}.bytes")
     (export / f"glare_params{tag}.json").write_text(json.dumps(       # the engines' layout file
         engine_layout(module, n_levels, source is not None, source,
-                      cross=args.arch in CROSS_ARCHS, bright=args.arch in BRIGHT_ARCHS), indent=2))
+                      cross=args.arch in CROSS_ARCHS, bright=args.arch in BRIGHT_ARCHS,
+                      ray_storage=args.ray_storage), indent=2))
     eval_path.write_text(json.dumps({
         "environment": environment(device), "args": vars(args), "eps": EPS, "flip_floor": m.flip_floor(EPS),
         "intensity": INTENSITY, "window_px": size, "flip_ppd": ppd, "levels": n_levels,
@@ -849,8 +937,9 @@ def main():
               f"(n = {trained['edge']['n']}). Negative output texels: "
               f"{results['trained']['negative_fraction']:.2%}. Learning rate {args.lr:g}; "
               f"{objective_name}, training ({len(data)} frames) "
-              f"{curve[0]['train_loss']:.4f} at step 0, "
-              f"{curve[-1]['train_loss']:.4f} at step {curve[-1]['step']}.\n\n"
+              + (f"{curve[0]['train_loss']:.4f} at step 0, "
+                 f"{curve[-1]['train_loss']:.4f} at step {curve[-1]['step']}.\n\n" if curve else
+                 "not trained (--steps 0: the init, as exported).\n\n") +
               f"Validation frame ({len(val_sel)} sources; selects between runs, decision log "
               f"2026-11-03): mean FLIP {results['init']['val']['flip']:.4f} at init, "
               f"**{results['trained']['val']['flip']:.4f}** trained; {objective_name} "

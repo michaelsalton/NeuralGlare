@@ -8,6 +8,7 @@ tuned baselines (FFT with the centre PSF, fitted pyramid bloom; train_points.str
 are rendered here on the same point-grid frame.
 
     uv run python experiments/03_train_network/views.py --study radial_input
+    uv run python experiments/03_train_network/views.py --study efficiency
 
 Writes outputs/03_train_network/<run>/<study>/report/views/:
     1_look.png            tonemapped, as a viewer would see it
@@ -17,6 +18,14 @@ Writes outputs/03_train_network/<run>/<study>/report/views/:
     5_loss_curves.png     training and validation loss per run
     6_blend_maps.png      each level's learned blend t over the screen
     7_light_per_path.png  the output split by the image its light enters from (input, mips)
+
+Efficiency studies (EFFICIENCY; docs/todo/26-11-23_Efficiency-Improvment.md) compare one trained
+model's engine variants, not architectures: their runs share weights, so figures 5-8 would
+repeat one model and aren't drawn. They add Unity's own output as a column (the parity run's
+points_test frame, unity_parity.py export --points, then Run Parity: what the GPU renders, with
+hardware filtering) and draw
+    3b_change_vs_unoptimised.png  each variant against the study's first run, on a scale that
+                                  resolves it
 """
 
 import argparse
@@ -103,7 +112,18 @@ STUDY_RUNS = {
         ("ray_cross", "_cross_abs_fitted_lr0.001_ee0.02_mips1", "cross filter (ray_cross)"),
         ("ray_bright", "_bright_abs_fitted_lr0.001_ee0.02_mips1", "+ per-ray brightness"),
     ],
+    "efficiency": [                     # 2026-11-24: ray_bright's engine variants, one set of weights
+        ("ray_bright", "_bright_abs_fitted_lr0.001_ee0.02_mips1",
+         "Unoptimised: fp32 rays, four-load bilinear, per-ray passes"),
+        ("ray_bright", "_bright_abs_fitted_lr0.001_ee0.02_mips1_rayfp16",
+         "Python model of the shipping path: fp16 rays, ray stack"),
+    ],
 }
+# Studies of engine variants of one model (module docstring): the label of Unity's output column.
+# It must come from the study's last run's weights (load_unity checks the parity run's weights).
+EFFICIENCY = {"efficiency": "Unity output (ships): hardware bilinear, fp16 rays, ray stack"}
+PARITY_DIR = ROOT / "outputs" / "02_slang_plumbing" / "unity_parity"   # unity_parity.py PARITY_DIR
+CHANGE_SCALE = 1e-2                 # 3b: colour range of the log10 ratio, +-2.3 %
 BASELINES = {"fft_centre": "Phase 0: FFT, centre PSF", "pyramid": "Phase 0: pyramid (fitted)"}
 EXPOSURE = 0.05                     # 1_look: Reinhard exposure, as the Step 1 views
 DECADES = 7                         # 2_log_luminance: range below the reference peak
@@ -142,6 +162,27 @@ def load_runs(run, study):
     pos = runs[0]["views"]["pos"]
     assert all(np.array_equal(r["views"]["pos"], pos) for r in runs), "runs saw other sources"
     return runs
+
+
+def load_unity(tag, pos):
+    """Unity's output on the test point grid, cropped like the runs' views: the parity run's
+    points_test frame. Checks that it is the point grid views are cropped from, and that Unity ran
+    the weights of the study's last run (tag) with the path its layout ships (unity_run.json)."""
+    manifest = json.loads((PARITY_DIR / "frames.json").read_text())
+    frame = next((f for f in manifest["frames"] if f["name"] == "points_test"), None)
+    assert frame, "no points_test frame: unity_parity.py export --points, then Run Parity in Unity"
+    weights = Path(manifest["weights"]).stem
+    assert weights == f"glare_params{tag}", f"Unity ran {weights}, the study's last run is {tag}"
+    w, h = frame["width"], frame["height"]
+
+    def read(name):
+        return np.fromfile(PARITY_DIR / f"points_test_{name}.f32", "<f4").reshape(h, w, 4)[..., :3]
+
+    grid = read_hdr(str(ROOT / "data" / "inputs" / "pointgrid.exr"))[..., :3].astype(np.float32)
+    assert np.array_equal(read("input"), grid), "points_test isn't pointgrid.exr"
+    out = read("unity_spikes")
+    info = json.loads((PARITY_DIR / "unity_run.json").read_text())
+    return np.stack([view_crop(out, x, y) for x, y in pos]), info
 
 
 def baseline_crops(run, fit, pos):
@@ -231,6 +272,35 @@ def fig_error(columns, hs, K, path):
     sm = plt.cm.ScalarMappable(cmap=DIVERGING, norm=plt.Normalize(-1, 1))
     fig.colorbar(sm, ax=axes, shrink=0.5,
                  label=f"log10 ratio (eps {EPS:g}): blue too bright, orange too dark")
+    fig.savefig(path, dpi=110, bbox_inches="tight")
+    plt.close(fig)
+
+
+def fig_change(columns, hs, path):
+    """Efficiency studies: each variant against the first column (the unoptimised model) as
+    log10((out + eps) / (first + eps)), on +-CHANGE_SCALE: fig_error's +-1 decade would show
+    nothing. Column 0 shows the first column's log luminance. Under each panel: the largest
+    change and where it is, relative to the source."""
+    base = columns[0][1]
+    vmax = max(log_lum(c).max() for c in base)
+    fig, axes = grid(len(hs), len(columns), f"What the speed-ups changed: log10((out + eps) / "
+                     f"(unoptimised + eps)), eps = {EPS:g}, colour range +-{CHANGE_SCALE:g}")
+    for r in range(len(hs)):
+        axes[r, 0].imshow(log_lum(base[r]), cmap="magma", vmin=vmax - DECADES, vmax=vmax,
+                          interpolation="nearest")
+        lb = luminance(base[r])
+        for c, (_, crops) in enumerate(columns[1:], start=1):
+            ratio = np.log10((luminance(crops[r]) + EPS) / (lb + EPS))
+            axes[r, c].imshow(ratio, cmap=DIVERGING, vmin=-CHANGE_SCALE, vmax=CHANGE_SCALE,
+                              interpolation="nearest")
+            y, x = np.unravel_index(np.abs(ratio).argmax(), ratio.shape)
+            axes[r, c].set_xlabel(f"max {np.abs(ratio).max():.1e}, mean {np.abs(ratio).mean():.0e}"
+                                  f"\nat ({x - VIEW_PX // 2:+d}, {y - VIEW_PX // 2:+d}) px",
+                                  fontsize=7)
+    label_grid(axes, [n for n, _ in columns], hs)
+    sm = plt.cm.ScalarMappable(cmap=DIVERGING, norm=plt.Normalize(-CHANGE_SCALE, CHANGE_SCALE))
+    fig.colorbar(sm, ax=axes, shrink=0.5,
+                 label="log10 ratio: blue brighter, orange darker than unoptimised")
     fig.savefig(path, dpi=110, bbox_inches="tight")
     plt.close(fig)
 
@@ -432,9 +502,14 @@ def main():
     pos, hs = runs[0]["views"]["pos"], runs[0]["views"]["h"]
     crops, K = baseline_crops(args.run, runs[0]["eval"]["phase0_fit"], pos)
     fit = runs[0]["eval"]["phase0_fit"]
+    models = [(r["label"], r["views"]["out"]) for r in runs]
+    if args.study in EFFICIENCY:
+        unity, info = load_unity(STUDY_RUNS[args.study][-1][1], pos)
+        models.append((EFFICIENCY[args.study], unity))
+        print(f"Unity output: {info['graphicsDeviceName']}, Unity {info['unityVersion']}, "
+              f"ray stack {info.get('rayStack', False)}, pre-exposure {info.get('preExposure', 1)}")
     columns = ([("Reference (exact lens)", crops["reference"])]
-               + [(f"{BASELINES[b]} ({fit[b]})", crops[b]) for b in BASELINES]
-               + [(r["label"], r["views"]["out"]) for r in runs])
+               + [(f"{BASELINES[b]} ({fit[b]})", crops[b]) for b in BASELINES] + models)
 
     out = Path(run_dir(EXPERIMENT, args.run, "report", args.study)) / "views"
     out.mkdir(exist_ok=True)
@@ -442,6 +517,10 @@ def main():
     fig_log(columns, hs, out / "2_log_luminance.png")
     fig_error(columns, hs, K, out / "3_error_ratio.png")
     fig_profile(columns, hs, out / "4_radial_profile.png")
+    if args.study in EFFICIENCY:            # one model's variants: 5-8 would repeat it
+        fig_change(models, hs, out / "3b_change_vs_unoptimised.png")
+        print(f"wrote {out}")
+        return
     fig_loss(runs, out / "5_loss_curves.png")
     fig_blend(runs, out / "6_blend_maps.png")
     fig_paths(runs, crops["reference"], hs, out / "7_light_per_path.png")

@@ -14,7 +14,9 @@ Texture2D<float4 > _Source : register(t0);
 
 Texture2D<float4 > _SourceLow : register(t1);
 
-StructuredBuffer<float > _GlareParams : register(t5);
+StructuredBuffer<float > _GlareParams : register(t6);
+
+SamplerState sampler_LinearClamp : register(s0);
 
 float BufferParams_get_0(StructuredBuffer<float > this_buf_0, int index_0)
 {
@@ -144,28 +146,62 @@ void MLP_eval_0(StructuredBuffer<float > params_buf_2, int offset_2, float  x_3[
     return;
 }
 
-void softmax_0(float  z_0[int(6)], out float  _S41[int(6)])
+int2 TextureImage_size_0(Texture2D<float4 > this_tex_0)
 {
-    float _S42 = max(max(max(max(max(z_0[int(0)], z_0[int(1)]), z_0[int(2)]), z_0[int(3)]), z_0[int(4)]), z_0[int(5)]);
-    float  w_0[int(6)];
-    float _S43 = exp(z_0[int(0)] - _S42);
-    float _S44 = exp(z_0[int(1)] - _S42);
-    float _S45 = exp(z_0[int(2)] - _S42);
-    float _S46 = exp(z_0[int(3)] - _S42);
-    float _S47 = exp(z_0[int(4)] - _S42);
-    float _S48 = exp(z_0[int(5)] - _S42);
-    float sum_0 = _S43 + _S44 + _S45 + _S46 + _S47 + _S48;
-    w_0[int(0)] = _S43 / sum_0;
-    w_0[int(1)] = _S44 / sum_0;
-    w_0[int(2)] = _S45 / sum_0;
-    w_0[int(3)] = _S46 / sum_0;
-    w_0[int(4)] = _S47 / sum_0;
-    w_0[int(5)] = _S48 / sum_0;
-    _S41 = w_0;
+    uint w_0;
+    uint h_1;
+    this_tex_0.GetDimensions(w_0, h_1);
+    return int2(int(w_0), int(h_1));
+}
+
+float3 TextureImage_bilinear_0(Texture2D<float4 > this_tex_1, float2 p_0)
+{
+    return this_tex_1.SampleLevel(sampler_LinearClamp, (p_0 + 0.5f) / float2(TextureImage_size_0(this_tex_1)), 0.0f).xyz;
+}
+
+float3 sample_bilinear_0(Texture2D<float4 > img_tex_0, float2 uv_0)
+{
+    return TextureImage_bilinear_0(img_tex_0, uv_0 * float2(TextureImage_size_0(img_tex_0)) - 0.5f);
+}
+
+float3 sample_binomial5_0(Texture2D<float4 > img_tex_1, float2 uv_1)
+{
+    float2 _S41 = 1.0f / float2(TextureImage_size_0(img_tex_1));
+    return 0.09765625f * sample_bilinear_0(img_tex_1, uv_1 + float2(-1.20000004768371582f, -1.20000004768371582f) * _S41) + 0.1171875f * sample_bilinear_0(img_tex_1, uv_1 + float2(0.0f, -1.20000004768371582f) * _S41) + 0.09765625f * sample_bilinear_0(img_tex_1, uv_1 + float2(1.20000004768371582f, -1.20000004768371582f) * _S41) + 0.1171875f * sample_bilinear_0(img_tex_1, uv_1 + float2(-1.20000004768371582f, 0.0f) * _S41) + 0.140625f * sample_bilinear_0(img_tex_1, uv_1 + float2(0.0f, 0.0f) * _S41) + 0.1171875f * sample_bilinear_0(img_tex_1, uv_1 + float2(1.20000004768371582f, 0.0f) * _S41) + 0.09765625f * sample_bilinear_0(img_tex_1, uv_1 + float2(-1.20000004768371582f, 1.20000004768371582f) * _S41) + 0.1171875f * sample_bilinear_0(img_tex_1, uv_1 + float2(0.0f, 1.20000004768371582f) * _S41) + 0.09765625f * sample_bilinear_0(img_tex_1, uv_1 + float2(1.20000004768371582f, 1.20000004768371582f) * _S41);
+}
+
+float3 sample_tent_0(Texture2D<float4 > img_tex_2, float2 uv_2)
+{
+    float2 d_0 = 1.0f / float2(TextureImage_size_0(img_tex_2));
+    float _S42 = d_0.x;
+    float2 _S43 = float2(_S42, 0.0f);
+    float _S44 = d_0.y;
+    float2 _S45 = float2(0.0f, _S44);
+    return (4.0f * sample_bilinear_0(img_tex_2, uv_2) + 2.0f * (sample_bilinear_0(img_tex_2, uv_2 + _S43) + sample_bilinear_0(img_tex_2, uv_2 - _S43) + sample_bilinear_0(img_tex_2, uv_2 + _S45) + sample_bilinear_0(img_tex_2, uv_2 - _S45)) + (sample_bilinear_0(img_tex_2, uv_2 + d_0) + sample_bilinear_0(img_tex_2, uv_2 - d_0) + sample_bilinear_0(img_tex_2, uv_2 + float2(_S42, - _S44)) + sample_bilinear_0(img_tex_2, uv_2 + float2(- _S42, _S44)))) / 16.0f;
+}
+
+void softmax_0(float  z_0[int(6)], out float  _S46[int(6)])
+{
+    float _S47 = max(max(max(max(max(z_0[int(0)], z_0[int(1)]), z_0[int(2)]), z_0[int(3)]), z_0[int(4)]), z_0[int(5)]);
+    float  w_1[int(6)];
+    float _S48 = exp(z_0[int(0)] - _S47);
+    float _S49 = exp(z_0[int(1)] - _S47);
+    float _S50 = exp(z_0[int(2)] - _S47);
+    float _S51 = exp(z_0[int(3)] - _S47);
+    float _S52 = exp(z_0[int(4)] - _S47);
+    float _S53 = exp(z_0[int(5)] - _S47);
+    float sum_0 = _S48 + _S49 + _S50 + _S51 + _S52 + _S53;
+    w_1[int(0)] = _S48 / sum_0;
+    w_1[int(1)] = _S49 / sum_0;
+    w_1[int(2)] = _S50 / sum_0;
+    w_1[int(3)] = _S51 / sum_0;
+    w_1[int(4)] = _S52 / sum_0;
+    w_1[int(5)] = _S53 / sum_0;
+    _S46 = w_1;
     return;
 }
 
-void softmax_rgb_0(float  z_1[int(18)], out float3  _S49[int(6)])
+void softmax_rgb_0(float  z_1[int(18)], out float3  _S54[int(6)])
 {
     float  zc_0[int(6)];
     zc_0[int(0)] = z_1[int(0)];
@@ -174,15 +210,15 @@ void softmax_rgb_0(float  z_1[int(18)], out float3  _S49[int(6)])
     zc_0[int(3)] = z_1[int(3)];
     zc_0[int(4)] = z_1[int(4)];
     zc_0[int(5)] = z_1[int(5)];
-    float  _S50[int(6)];
-    softmax_0(zc_0, _S50);
-    float3  w_1[int(6)];
-    w_1[int(0)][int(0)] = _S50[int(0)];
-    w_1[int(1)][int(0)] = _S50[int(1)];
-    w_1[int(2)][int(0)] = _S50[int(2)];
-    w_1[int(3)][int(0)] = _S50[int(3)];
-    w_1[int(4)][int(0)] = _S50[int(4)];
-    w_1[int(5)][int(0)] = _S50[int(5)];
+    float  _S55[int(6)];
+    softmax_0(zc_0, _S55);
+    float3  w_2[int(6)];
+    w_2[int(0)][int(0)] = _S55[int(0)];
+    w_2[int(1)][int(0)] = _S55[int(1)];
+    w_2[int(2)][int(0)] = _S55[int(2)];
+    w_2[int(3)][int(0)] = _S55[int(3)];
+    w_2[int(4)][int(0)] = _S55[int(4)];
+    w_2[int(5)][int(0)] = _S55[int(5)];
     float  zc_1[int(6)];
     zc_1[int(0)] = z_1[int(6)];
     zc_1[int(1)] = z_1[int(7)];
@@ -190,14 +226,14 @@ void softmax_rgb_0(float  z_1[int(18)], out float3  _S49[int(6)])
     zc_1[int(3)] = z_1[int(9)];
     zc_1[int(4)] = z_1[int(10)];
     zc_1[int(5)] = z_1[int(11)];
-    float  _S51[int(6)];
-    softmax_0(zc_1, _S51);
-    w_1[int(0)][int(1)] = _S51[int(0)];
-    w_1[int(1)][int(1)] = _S51[int(1)];
-    w_1[int(2)][int(1)] = _S51[int(2)];
-    w_1[int(3)][int(1)] = _S51[int(3)];
-    w_1[int(4)][int(1)] = _S51[int(4)];
-    w_1[int(5)][int(1)] = _S51[int(5)];
+    float  _S56[int(6)];
+    softmax_0(zc_1, _S56);
+    w_2[int(0)][int(1)] = _S56[int(0)];
+    w_2[int(1)][int(1)] = _S56[int(1)];
+    w_2[int(2)][int(1)] = _S56[int(2)];
+    w_2[int(3)][int(1)] = _S56[int(3)];
+    w_2[int(4)][int(1)] = _S56[int(4)];
+    w_2[int(5)][int(1)] = _S56[int(5)];
     float  zc_2[int(6)];
     zc_2[int(0)] = z_1[int(12)];
     zc_2[int(1)] = z_1[int(13)];
@@ -205,117 +241,79 @@ void softmax_rgb_0(float  z_1[int(18)], out float3  _S49[int(6)])
     zc_2[int(3)] = z_1[int(15)];
     zc_2[int(4)] = z_1[int(16)];
     zc_2[int(5)] = z_1[int(17)];
-    float  _S52[int(6)];
-    softmax_0(zc_2, _S52);
-    w_1[int(0)][int(2)] = _S52[int(0)];
-    w_1[int(1)][int(2)] = _S52[int(1)];
-    w_1[int(2)][int(2)] = _S52[int(2)];
-    w_1[int(3)][int(2)] = _S52[int(3)];
-    w_1[int(4)][int(2)] = _S52[int(4)];
-    w_1[int(5)][int(2)] = _S52[int(5)];
-    _S49 = w_1;
+    float  _S57[int(6)];
+    softmax_0(zc_2, _S57);
+    w_2[int(0)][int(2)] = _S57[int(0)];
+    w_2[int(1)][int(2)] = _S57[int(1)];
+    w_2[int(2)][int(2)] = _S57[int(2)];
+    w_2[int(3)][int(2)] = _S57[int(3)];
+    w_2[int(4)][int(2)] = _S57[int(4)];
+    w_2[int(5)][int(2)] = _S57[int(5)];
+    _S54 = w_2;
     return;
 }
 
-void weights_0(float2 uv_0, StructuredBuffer<float > params_buf_3, int offset_3, out float3  _S53[int(6)])
+void weights_0(float2 uv_3, StructuredBuffer<float > params_buf_3, int offset_3, out float3  _S58[int(6)])
 {
-    float  x_4[int(2)] = { uv_0.x, uv_0.y };
-    float  _S54[int(18)];
-    MLP_eval_0(params_buf_3, offset_3, x_4, _S54);
-    float3  _S55[int(6)];
-    softmax_rgb_0(_S54, _S55);
-    _S53 = _S55;
+    float  x_4[int(2)] = { uv_3.x, uv_3.y };
+    float  _S59[int(18)];
+    MLP_eval_0(params_buf_3, offset_3, x_4, _S59);
+    float3  _S60[int(6)];
+    softmax_rgb_0(_S59, _S60);
+    _S58 = _S60;
     return;
 }
 
-int2 TextureImage_size_0(Texture2D<float4 > this_tex_0)
+float2 texel_uv_0(int2 texel_0, int2 size_0)
 {
-    uint w_2;
-    uint h_1;
-    this_tex_0.GetDimensions(w_2, h_1);
-    return int2(int(w_2), int(h_1));
-}
-
-float3 TextureImage_load_0(Texture2D<float4 > this_tex_1, int2 texel_0)
-{
-    return this_tex_1.Load(int3(texel_0, int(0))).xyz;
-}
-
-float3 sample_bilinear_0(Texture2D<float4 > img_tex_0, float2 uv_1)
-{
-    int2 _S56 = TextureImage_size_0(img_tex_0);
-    float2 p_0 = uv_1 * float2(_S56) - 0.5f;
-    float2 p0_0 = floor(p_0);
-    float2 f_0 = p_0 - p0_0;
-    int2 _S57 = int2(p0_0);
-    int2 _S58 = (int2)int(0);
-    int2 _S59 = _S56 - int(1);
-    int2 i0_0 = clamp(_S57, _S58, _S59);
-    int2 i1_0 = clamp(_S57 + int(1), _S58, _S59);
-    int _S60 = i0_0.x;
-    int _S61 = i0_0.y;
-    int _S62 = i1_0.x;
-    float3 _S63 = (float3)f_0.x;
-    int _S64 = i1_0.y;
-    return lerp(lerp(TextureImage_load_0(img_tex_0, int2(_S60, _S61)), TextureImage_load_0(img_tex_0, int2(_S62, _S61)), _S63), lerp(TextureImage_load_0(img_tex_0, int2(_S60, _S64)), TextureImage_load_0(img_tex_0, int2(_S62, _S64)), _S63), (float3)f_0.y);
-}
-
-float3 sample_binomial5_0(Texture2D<float4 > img_tex_1, float2 uv_2)
-{
-    float2 _S65 = 1.0f / float2(TextureImage_size_0(img_tex_1));
-    return 0.09765625f * sample_bilinear_0(img_tex_1, uv_2 + float2(-1.20000004768371582f, -1.20000004768371582f) * _S65) + 0.1171875f * sample_bilinear_0(img_tex_1, uv_2 + float2(0.0f, -1.20000004768371582f) * _S65) + 0.09765625f * sample_bilinear_0(img_tex_1, uv_2 + float2(1.20000004768371582f, -1.20000004768371582f) * _S65) + 0.1171875f * sample_bilinear_0(img_tex_1, uv_2 + float2(-1.20000004768371582f, 0.0f) * _S65) + 0.140625f * sample_bilinear_0(img_tex_1, uv_2 + float2(0.0f, 0.0f) * _S65) + 0.1171875f * sample_bilinear_0(img_tex_1, uv_2 + float2(1.20000004768371582f, 0.0f) * _S65) + 0.09765625f * sample_bilinear_0(img_tex_1, uv_2 + float2(-1.20000004768371582f, 1.20000004768371582f) * _S65) + 0.1171875f * sample_bilinear_0(img_tex_1, uv_2 + float2(0.0f, 1.20000004768371582f) * _S65) + 0.09765625f * sample_bilinear_0(img_tex_1, uv_2 + float2(1.20000004768371582f, 1.20000004768371582f) * _S65);
-}
-
-float3 sample_tent_0(Texture2D<float4 > img_tex_2, float2 uv_3)
-{
-    float2 d_0 = 1.0f / float2(TextureImage_size_0(img_tex_2));
-    float _S66 = d_0.x;
-    float2 _S67 = float2(_S66, 0.0f);
-    float _S68 = d_0.y;
-    float2 _S69 = float2(0.0f, _S68);
-    return (4.0f * sample_bilinear_0(img_tex_2, uv_3) + 2.0f * (sample_bilinear_0(img_tex_2, uv_3 + _S67) + sample_bilinear_0(img_tex_2, uv_3 - _S67) + sample_bilinear_0(img_tex_2, uv_3 + _S69) + sample_bilinear_0(img_tex_2, uv_3 - _S69)) + (sample_bilinear_0(img_tex_2, uv_3 + d_0) + sample_bilinear_0(img_tex_2, uv_3 - d_0) + sample_bilinear_0(img_tex_2, uv_3 + float2(_S66, - _S68)) + sample_bilinear_0(img_tex_2, uv_3 + float2(- _S66, _S68)))) / 16.0f;
-}
-
-float2 texel_uv_0(int2 texel_1, int2 size_0)
-{
-    return (float2(texel_1) + 0.5f) / float2(size_0);
+    return (float2(texel_0) + 0.5f) / float2(size_0);
 }
 
 float2 field_offset_0(float2 uv_4, int2 size_1)
 {
-    float2 _S70 = float2(size_1);
-    return (uv_4 - 0.5f) * _S70 / length(0.5f * _S70);
+    float2 _S61 = float2(size_1);
+    return (uv_4 - 0.5f) * _S61 / length(0.5f * _S61);
 }
 
-float3 upsample_0(int2 texel_2, int2 out_size_0, Texture2D<float4 > mip_tex_0, Texture2D<float4 > low_tex_0, StructuredBuffer<float > params_buf_4, int offset_4)
+float3 TextureImage_load_0(Texture2D<float4 > this_tex_2, int2 texel_1)
+{
+    return this_tex_2.Load(int3(texel_1, int(0))).xyz;
+}
+
+float3 upsample_weighted_0(int2 texel_2, int2 out_size_0, Texture2D<float4 > mip_tex_0, Texture2D<float4 > low_tex_0, float3  w_3[int(6)])
 {
     float2 uv_5 = texel_uv_0(texel_2, out_size_0);
-    float3  _S71[int(6)];
-    weights_0(uv_5, params_buf_4, offset_4, _S71);
     float2 o_0 = field_offset_0(uv_5, out_size_0) / float2(out_size_0);
-    return _S71[int(0)] * TextureImage_load_0(mip_tex_0, texel_2) + _S71[int(1)] * sample_bilinear_0(mip_tex_0, uv_5 + o_0) + _S71[int(2)] * sample_bilinear_0(mip_tex_0, uv_5 - o_0) + _S71[int(3)] * sample_tent_0(low_tex_0, uv_5) + _S71[int(4)] * sample_tent_0(mip_tex_0, uv_5) + _S71[int(5)] * sample_binomial5_0(mip_tex_0, uv_5);
+    return w_3[int(0)] * TextureImage_load_0(mip_tex_0, texel_2) + w_3[int(1)] * sample_bilinear_0(mip_tex_0, uv_5 + o_0) + w_3[int(2)] * sample_bilinear_0(mip_tex_0, uv_5 - o_0) + w_3[int(3)] * sample_tent_0(low_tex_0, uv_5) + w_3[int(4)] * sample_tent_0(mip_tex_0, uv_5) + w_3[int(5)] * sample_binomial5_0(mip_tex_0, uv_5);
+}
+
+float3 upsample_0(int2 texel_3, int2 out_size_1, Texture2D<float4 > mip_tex_1, Texture2D<float4 > low_tex_1, StructuredBuffer<float > params_buf_4, int offset_4)
+{
+    float3  _S62[int(6)];
+    weights_0(texel_uv_0(texel_3, out_size_1), params_buf_4, offset_4, _S62);
+    return upsample_weighted_0(texel_3, out_size_1, mip_tex_1, low_tex_1, _S62);
 }
 
 int2 target_size_0()
 {
-    uint w_3;
+    uint w_4;
     uint h_2;
-    _Target.GetDimensions(w_3, h_2);
-    return int2(int(w_3), int(h_2));
+    _Target.GetDimensions(w_4, h_2);
+    return int2(int(w_4), int(h_2));
 }
 
 [numthreads(8, 8, 1)]
 void Upsample(uint3 id_0 : SV_DispatchThreadID)
 {
     int2 size_2 = target_size_0();
-    int2 _S72 = int2(id_0.xy);
-    if(any(_S72 >= size_2))
+    int2 _S63 = int2(id_0.xy);
+    if(any(_S63 >= size_2))
     {
         return;
     }
-    uint2 _S73 = uint2(_S72);
-    int _S74 = ((_ParamOffset));
-    _Target[_S73] = float4(upsample_0(_S72, size_2, _Source, _SourceLow, _GlareParams, _S74), 1.0f);
+    uint2 _S64 = uint2(_S63);
+    int _S65 = ((_ParamOffset));
+    _Target[_S64] = float4(upsample_0(_S63, size_2, _Source, _SourceLow, _GlareParams, _S65), 1.0f);
     return;
 }
 

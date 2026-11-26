@@ -35,6 +35,8 @@ static class ParityHarness
     [Serializable] class RunInfo
     {
         public string unityVersion, graphicsDeviceType, graphicsDeviceName, graphicsDeviceVersion;
+        public float preExposure;   // GlareChain.PreExposure the rays ran with (unity_parity.py compare)
+        public bool rayStack;       // GlareChain.RayStack: no family sums exist (efficiency step 1c)
     }
 
     // Assets/ -> NeuralGlareURP/ -> unity/ -> engines/ -> repo root
@@ -58,13 +60,21 @@ static class ParityHarness
             rayBrightAccumulate = LoadShader("GlareRayBrightAccumulate"),
             spikeComposite = LoadShader("GlareSpikeComposite"),
             spikeCompositeBright = LoadShader("GlareSpikeCompositeBright"),
+            streakToStack = LoadShader("GlareStreakToStack"),
+            spikeCompositeStack = LoadShader("GlareSpikeCompositeStack"),
         };
         GlareLayout layout = GlareLayout.Parse(LoadText(LayoutPath).text, LayoutPath);
         float[] weights = layout.ReadWeights(LoadText(WeightsPath).bytes, WeightsPath);
 
-        using (var chain = new GlareChain(shaders, layout, weights))
+        float preExposure;
+        bool rayStack;
+        using (var chain = new GlareChain(shaders, layout, weights))   // the path the player runs
+        {
+            preExposure = chain.PreExposure;
+            rayStack = chain.RayStack;
             foreach (Frame frame in manifest.frames)
                 RunFrame(frame, chain);
+        }
 
         var info = new RunInfo
         {
@@ -72,6 +82,8 @@ static class ParityHarness
             graphicsDeviceType = SystemInfo.graphicsDeviceType.ToString(),
             graphicsDeviceName = SystemInfo.graphicsDeviceName,
             graphicsDeviceVersion = SystemInfo.graphicsDeviceVersion,
+            preExposure = preExposure,
+            rayStack = rayStack,
         };
         File.WriteAllText(Path.Combine(ParityDir, "unity_run.json"), JsonUtility.ToJson(info, true));
         Debug.Log($"Parity: {manifest.frames.Length} frames on {info.graphicsDeviceVersion} -> {ParityDir}");
@@ -102,8 +114,11 @@ static class ParityHarness
                 WriteFloats(chain.Full, Path.Combine(ParityDir, $"{frame.name}_unity_full.f32"));
             if (chain.HasSpikes)
             {
-                WriteFloats(chain.FamilyEven, Path.Combine(ParityDir, $"{frame.name}_unity_even.f32"));
-                WriteFloats(chain.FamilyOdd, Path.Combine(ParityDir, $"{frame.name}_unity_odd.f32"));
+                if (!chain.RayStack)    // the ray stack never stores the family sums
+                {
+                    WriteFloats(chain.FamilyEven, Path.Combine(ParityDir, $"{frame.name}_unity_even.f32"));
+                    WriteFloats(chain.FamilyOdd, Path.Combine(ParityDir, $"{frame.name}_unity_odd.f32"));
+                }
                 WriteFloats(chain.Output, Path.Combine(ParityDir, $"{frame.name}_unity_spikes.f32"));
             }
         }
@@ -137,7 +152,9 @@ static class ParityHarness
 
     static void WriteFloats(RenderTexture rt, string path)
     {
-        var request = AsyncGPUReadback.Request(rt);
+        // As RGBAFloat whatever rt's format (the ray families may be RGBA16F, layout rayStorage):
+        // half -> float is exact, so the file is always 16 B/px float32 for unity_parity.py
+        var request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBAFloat);
         request.WaitForCompletion();
         if (request.hasError)
             throw new IOException($"GPU readback failed for {path}");

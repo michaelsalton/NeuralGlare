@@ -3,5 +3,6 @@
 // Declared here, not in the generated HLSL: Unity only binds plain uniforms in $Globals
 int _ParamOffset;   // RayMLP's start (after the profile logits)
 int _Ray;
+float _RayScale;    // 1 / pre-exposure (GlareChain.RecordRays)
 
 #include "../Generated/glare_RayCrossAccumulate.hlsl"

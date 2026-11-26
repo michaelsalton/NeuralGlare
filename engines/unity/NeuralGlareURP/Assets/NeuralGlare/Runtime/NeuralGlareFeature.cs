@@ -1,5 +1,5 @@
 // URP renderer feature: runs GlareChain on the camera colour before post-processing (Phase 3).
-// Add it to the URP Renderer asset and assign the 10 compute shaders, glare_params.bytes and
+// Add it to the URP Renderer asset and assign the 10 compute shaders (+ 2 optional ray-stack ones), glare_params.bytes and
 // glare_params.json (written by unity_parity.py export). The camera must render HDR (URP asset).
 // -ngWeights <file.bytes> -ngLayout <file.json> on the command line replace the assigned weights,
 // so one build can time any model that runs on the current kernels.
@@ -18,6 +18,10 @@ namespace NeuralGlare
         [SerializeField] TextAsset weights;     // Data/glare_params.bytes
         [SerializeField] TextAsset layout;      // Data/glare_params.json
         [SerializeField] RenderPassEvent passEvent = RenderPassEvent.BeforeRenderingPostProcessing;
+        [Tooltip("Pre-exposure k of the rays (GlareChain.PreExposure); a power of two keeps it exact")]
+        [SerializeField] float preExposure = GlareChain.DefaultPreExposure;
+        [Tooltip("Efficiency step 1c: every ray's last streak pass into a texture array, the cross filter, brightness and family sums in the composite (layouts with brightness and spikeSource input; needs the two stack shaders). -ngRayStack 0|1 overrides")]
+        [SerializeField] bool rayStack = true;
 
         GlareChain chain;
         GlarePass pass;
@@ -25,6 +29,8 @@ namespace NeuralGlare
         // The weights actually loaded (GlareTimer records it): the assets assigned here, or the files
         // named by -ngWeights / -ngLayout (both or neither).
         public static string WeightsSource { get; private set; }
+        // Whether the loaded chain runs the ray-stack path (GlareChain.RayStack; GlareTimer records it).
+        public static bool RayStackUsed { get; private set; }
 
         public override void Create()
         {
@@ -43,9 +49,14 @@ namespace NeuralGlare
             string weightsName = fromFiles ? weightsPath : weights.name;
             GlareLayout l = GlareLayout.Parse(fromFiles ? File.ReadAllText(layoutPath) : layout.text, layoutName);
             float[] w = l.ReadWeights(fromFiles ? File.ReadAllBytes(weightsPath) : weights.bytes, weightsName);
-            chain = new GlareChain(shaders, l, w);
+            string stackArg = GlareTimer.Arg("-ngRayStack");
+            if (stackArg != null && stackArg != "0" && stackArg != "1")
+                throw new ArgumentException($"NeuralGlareFeature: -ngRayStack {stackArg}, expected 0 or 1");
+            chain = new GlareChain(shaders, l, w, stackArg != null ? stackArg == "1" : rayStack)
+                { PreExposure = preExposure };
             WeightsSource = weightsName;
-            Debug.Log($"NeuralGlareFeature: weights {weightsName}");
+            RayStackUsed = chain.RayStack;
+            Debug.Log($"NeuralGlareFeature: weights {weightsName}, ray stack {chain.RayStack}");
             pass = new GlarePass(chain) { renderPassEvent = passEvent };
         }
 

@@ -17,6 +17,8 @@ import pytest
 import slangpy as spy
 import torch
 
+from neuralglare.storage import half_toward_zero
+
 SLANG_DIR = Path(__file__).parents[1] / "slang"
 H, W = 160, 200                 # a mip-0-sized test image
 SRC = (100, 80)                 # (x, y) of the impulse, > 63 texels from every border
@@ -46,7 +48,7 @@ def ray(module, img, params, k):
     _, passes, _, _ = sizes(module)
     for stage in range(passes):
         img = module.streak_pass(texel=spy.grid((H, W)), src=img, params=params, profile=0,
-                                 ray=k, stage=stage)
+                                 ray=k, stage=stage, scale=1.0)
     return img
 
 
@@ -57,6 +59,7 @@ def logits(module, value=0.0):
 @needs_cuda
 def test_sizes(module):
     rays, passes, taps, count = sizes(module)
+    assert (passes, taps) == (3, 4)
     assert (rays, count) == (14, 2 * passes * taps)
     assert taps ** passes == 64, "the passes' base-taps digits must cover 0..63 texels"
     v = module.spike_mlp_sizes()
@@ -93,15 +96,32 @@ def test_every_ray_keeps_its_light_and_points_along_its_angle(module, k):
 
 @needs_cuda
 def test_families_use_their_own_logits(module):
-    """Ray 0 (even) reads logits 0..11, ray 1 (odd) 12..23: changing one family's logits leaves
-    the other family's rays unchanged."""
+    """Ray 0 (even) reads the first half of the logits (0..11 with 4 taps), ray 1 (odd) the
+    second: changing one family's logits leaves the other family's rays unchanged."""
+    half = sizes(module)[3] // 2
     a, b = logits(module), logits(module)
     with torch.no_grad():
-        b[12:] = 3.0 * torch.arange(12, device="cuda") / 12
+        b[half:] = 3.0 * torch.arange(half, device="cuda") / half
     for k, same in ((0, True), (1, False)):
         ra = ray(module, impulse(), a, k).detach()
         rb = ray(module, impulse(), b, k).detach()
         assert torch.equal(ra, rb) == same, k
+
+
+@needs_cuda
+def test_exponential_init_is_exact(module):
+    """train_points.spike_init's logits z[p][n] = -n taps^p / decay give ray 0 the profile
+    exp(-d / decay) over d = 0..63, normalised: the product of one softmax weight per base-taps
+    digit of d."""
+    _, passes, taps, count = sizes(module)
+    decay = 16.0
+    z = [-n * taps ** p / decay for p in range(passes) for n in range(taps)]
+    params = torch.tensor(z * 2, device="cuda").requires_grad_(True)
+    assert params.numel() == count
+    out = ray(module, impulse(), params, 0).detach().cpu().numpy()[..., 0]
+    want = np.exp(-np.arange(64) / decay)
+    x, y = SRC
+    np.testing.assert_allclose(out[y, x:x + 64], want / want.sum(), rtol=1e-5)
 
 
 @needs_cuda
@@ -121,12 +141,76 @@ def test_accumulate_adds_to_the_running_sum(module):
     s = impulse()
     for stage in range(passes - 1):
         s = module.streak_pass(texel=spy.grid((H, W)), src=s, params=params, profile=0, ray=3,
-                               stage=stage)
+                               stage=stage, scale=1.0)
     acc = torch.rand(H, W, 3, device="cuda")
     got = module.streak_accumulate_pass(texel=spy.grid((H, W)), src=s, acc=acc, params=params,
-                                        profile=0, ray=3, stage=passes - 1)
+                                        profile=0, ray=3, stage=passes - 1, scale=1.0)
     want = acc + ray(module, impulse(), params, 3)
     torch.testing.assert_close(got.detach(), want.detach(), rtol=1e-6, atol=1e-7)
+
+
+def scaled_ray(module, img, params, k, texel_step):
+    _, passes, _, _ = sizes(module)
+    h, w = img.shape[:2]
+    for stage in range(passes):
+        img = module.streak_at_scale_pass(texel=spy.grid((h, w)), src=img, params=params,
+                                          profile=0, ray=k, stage=stage, scale=1.0,
+                                          texel_step=texel_step)
+    return img
+
+
+@needs_cuda
+@pytest.mark.parametrize("k", (0, 3))
+def test_streak_at_scale_one_is_streak(module, k):
+    """texel_step = 1 is streak exactly (efficiency step 2c): streak calls it with 1."""
+    params = torch.randn(sizes(module)[3], generator=torch.Generator().manual_seed(k)).cuda()
+    params.requires_grad_(True)
+    got = scaled_ray(module, impulse(), params, k, 1.0).detach()
+    torch.testing.assert_close(got, ray(module, impulse(), params, k).detach(), rtol=0, atol=0)
+
+
+@needs_cuda
+def test_half_resolution_ray_keeps_its_length_in_pixels(module):
+    """texel_step = 0.5 on an image of 2-pixel texels: uniform logits put ray 0 (along +x) over
+    0..31.5 texels, i.e. 0..63 output pixels, keeping its light; its centroid is half the
+    full-resolution one (31.5 / 2 texels)."""
+    out = scaled_ray(module, impulse(), logits(module), 0, 0.5).detach().cpu().numpy()[..., 0]
+    x, y = SRC
+    assert out.sum() == pytest.approx(1.0, rel=1e-5)
+    assert np.abs(out[y]).sum() == pytest.approx(out.sum(), rel=1e-6)    # stays on its row
+    centroid = (out[y] * (np.arange(W) - x)).sum() / out[y].sum()
+    assert centroid == pytest.approx(31.5 / 2, rel=1e-5)
+    assert out[y, x + 33:].sum() == 0 and out[y, :x].sum() == 0          # nothing past 31.5
+
+
+def pre_exposed_ray(module, img, params, k, half):
+    """Ray 3 as an engine runs it with pre-exposure k (glare.slang streak; decision log
+    2026-11-24): k into the first pass, 1/k out of the last, each stored output but the last
+    rounded to fp16 if `half` (as rayA / rayB; the last feeds a float32 family sum)."""
+    _, passes, _, _ = sizes(module)
+    for stage in range(passes):
+        scale = (k if stage == 0 else 1.0) * (1.0 / k if stage == passes - 1 else 1.0)
+        img = module.streak_pass(texel=spy.grid((H, W)), src=img, params=params, profile=0,
+                                 ray=3, stage=stage, scale=scale)
+        if half and stage < passes - 1:
+            img = half_toward_zero(img)
+    return img.detach()
+
+
+@needs_cuda
+def test_pre_exposure_is_exact_and_keeps_a_sun_in_fp16(module):
+    """A power-of-two k changes nothing in float32 (bit for bit). A sun-bright impulse (3.8e5, as
+    goegap_road_4k's) overflows fp16 storage without pre-exposure (saturating at 65504, rounding
+    toward zero), and fits with k = 1/16, within fp16's rounding of the float32 ray."""
+    params = logits(module)
+    sun = 3.8e5 * impulse()
+    plain = pre_exposed_ray(module, sun, params, 1.0, half=False)
+    assert torch.equal(pre_exposed_ray(module, sun, params, 1 / 16, half=False), plain)
+    clipped = pre_exposed_ray(module, sun, params, 1.0, half=True)
+    assert not torch.allclose(clipped, plain, rtol=0.1)        # saturated, silently
+    got = pre_exposed_ray(module, sun, params, 1 / 16, half=True)
+    assert torch.isfinite(got).all()
+    torch.testing.assert_close(got, plain, rtol=2e-3, atol=1e-3)
 
 
 def spike_params(module, bias, profile=0.0):
@@ -238,11 +322,11 @@ def crossed(module, img, params, k, acc=None):
     _, passes, _, count = sizes(module)
     for stage in range(passes):
         img = module.streak_pass(texel=spy.grid((H, W)), src=img, params=params, profile=0,
-                                 ray=k, stage=stage)
+                                 ray=k, stage=stage, scale=1.0)
     # requires_grad: slangpy 0.43.1 on Vulkan needs a gradient buffer on every DiffTensor in a backward
     acc = torch.zeros(H, W, 3, device="cuda", requires_grad=True) if acc is None else acc
     return module.ray_cross_accumulate_pass(texel=spy.grid((H, W)), out_size=spy.int2(W, H),
-                                            src=img, acc=acc, params=params, offset=count, ray=k)
+                                            src=img, acc=acc, params=params, offset=count, ray=k, scale=1.0)
 
 
 @needs_cuda
@@ -361,11 +445,11 @@ def family_rays(module, img, params, offsets, bright):
         s = img
         for stage in range(passes):
             s = module.streak_pass(texel=spy.grid((H, W)), src=s, params=params, profile=profile,
-                                   ray=k, stage=stage)
+                                   ray=k, stage=stage, scale=1.0)
         accumulate = (module.ray_bright_accumulate_pass if bright
                       else module.ray_cross_accumulate_pass)
         acc[k % 2] = accumulate(texel=spy.grid((H, W)), out_size=spy.int2(W, H), src=s,
-                                acc=acc[k % 2], params=params, offset=ray_off, ray=k)
+                                acc=acc[k % 2], params=params, offset=ray_off, ray=k, scale=1.0)
     return acc
 
 
@@ -457,11 +541,11 @@ def test_bright_term_matches_its_gains(module):
         s = img
         for stage in range(passes):
             s = module.streak_pass(texel=spy.grid((H, W)), src=s, params=params, profile=profile,
-                                   ray=k, stage=stage)
+                                   ray=k, stage=stage, scale=1.0)
         zero = torch.zeros(H, W, 3, device="cuda", requires_grad=True)
         sk = module.ray_cross_accumulate_pass(texel=spy.grid((H, W)), out_size=spy.int2(W, H),
                                               src=s, acc=zero, params=params, offset=ray_off,
-                                              ray=k).detach()
+                                              ray=k, scale=1.0).detach()
         g = module.ray_gain(v=v, params=params, offset=off, ray=k).detach().reshape(H, W, 1)
         fams[k % 2] += g * sk / 7
     w = torch.stack([module.spike_mix(uv=uv, params=params, offset=0, channel=c).detach()
@@ -502,3 +586,80 @@ def test_bright_gradient_matches_finite_difference(module):
     # float32 it is noise: 5e-5 of the largest BrightMLP gradient seen
     bright_grad = params.grad[off:off + bright_sizes(module)[3]]
     assert abs(bright_grad[-1].item()) < 1e-3 * bright_grad.abs().max().item(), "the bias cancels"
+
+
+# -------------------------------------------- the ray stack (efficiency step 1c, 2026-11-24)
+
+def stack_term(module, img, params, offsets, scale=1.0):
+    """The spike term of img onto a zero base from the ray stack (spike_stack_pass): every ray's
+    last streak pass stacked, the cross filter, brightness and family sums in the composite."""
+    profile = offsets[0]
+    passes = sizes(module)[1]
+    last = []
+    for k in range(14):
+        s = img
+        for stage in range(passes):
+            s = module.streak_pass(texel=spy.grid((H, W)), src=s, params=params, profile=profile,
+                                   ray=k, stage=stage, scale=1.0)
+        last.append(s)
+    base = torch.zeros(H, W, 3, device="cuda", requires_grad=True)
+    return module.spike_stack_pass(texel=spy.grid((H, W)), out_size=spy.int2(W, H), base=base,
+                                   rays=torch.stack(last), params=params, offset=0, scale=scale)
+
+
+@needs_cuda
+def test_stack_matches_the_per_ray_passes(module):
+    """Same arithmetic, same order: the stack composite equals ray_bright_accumulate summed per
+    family + spike_composite_bright, for random weights and off-centre sources."""
+    params, offsets = full_spike_params(module, seed=2, bright_scale=4.0)
+    img = torch.zeros(H, W, 3, device="cuda")
+    img[30, 40] = 1.0
+    img[120, 170] = 2.0
+    img[5, 195] = 3.0                            # rays leave the frame: the zero border
+    got = stack_term(module, img, params, offsets).detach()
+    want = bright_term(module, img, params, offsets, bright=True).detach()
+    assert got.sum().item() > 0
+    # atol: the per-ray composite reads each family with sample_bilinear at texel centres, where
+    # uv * size - 0.5 misses the integer by up to an ulp (1.5e-5 texel at x = 196), blending in a
+    # sliver of the neighbours: 7e-6 of the peak seen, next to a source. The stack reads its rays
+    # at integer offsets, so it is the exact one.
+    torch.testing.assert_close(got, want, rtol=1e-6, atol=2e-5 * want.abs().max().item())
+
+
+@needs_cuda
+def test_stack_scale_undoes_the_pre_exposure(module):
+    """A stack of k-scaled rays with scale 1/k (k a power of two) is the unscaled term exactly."""
+    params, offsets = full_spike_params(module, seed=2, bright_scale=4.0)
+    img = torch.zeros(H, W, 3, device="cuda")
+    img[30, 40] = 1.0
+    want = stack_term(module, img, params, offsets).detach()
+    got = stack_term(module, img / 16, params, offsets, scale=16.0).detach()
+    torch.testing.assert_close(got, want, rtol=0, atol=0)
+
+
+@needs_cuda
+def test_stack_gradient_matches_the_per_ray_passes(module):
+    """The stack's backward (through RaySlice, the loop and the stacked tensor) gives the per-ray
+    chain's parameter gradient."""
+    params, offsets = full_spike_params(module, seed=4, bright_scale=2.0)
+    img = torch.zeros(H, W, 3, device="cuda")
+    img[30, 40] = 1.0
+    yy, xx = torch.meshgrid(torch.arange(H, device="cuda"), torch.arange(W, device="cuda"),
+                            indexing="ij")
+    weight = (xx + 2 * yy).float()[..., None].expand(H, W, 3)
+    grads = []
+    for term in (stack_term, bright_term):
+        p = params.detach().clone().requires_grad_(True)
+        (term(module, img, p, offsets) * weight).sum().backward()
+        grads.append(p.grad.clone())
+    got, want = grads
+    off = offsets[2]                                  # BrightMLP's start; it runs to the end
+    torch.testing.assert_close(got[:off], want[:off], rtol=1e-4,
+                               atol=1e-6 * want.abs().max().item())
+    # BrightMLP: the e^{z_k} in each ray's term and in Z are one product here, two kernels in the
+    # per-ray chain, whose float32 cancellation is noise there (3e-4 of the block's largest
+    # gradient seen). The output bias cancels exactly (test_bright_gradient...): the stack's is
+    # the smaller noise.
+    scale = want[off:].abs().max().item()
+    torch.testing.assert_close(got[off:], want[off:], rtol=0, atol=1e-3 * scale)
+    assert abs(got[-1].item()) <= abs(want[-1].item()) + 1e-6 * scale, "the bias cancels"

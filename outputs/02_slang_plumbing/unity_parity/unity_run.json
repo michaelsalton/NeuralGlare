@@ -2,5 +2,7 @@
     "unityVersion": "6000.6.7f1",
     "graphicsDeviceType": "Direct3D12",
     "graphicsDeviceName": "NVIDIA GeForce RTX 2070",
-    "graphicsDeviceVersion": "Direct3D 12 [level 12.2]"
+    "graphicsDeviceVersion": "Direct3D 12 [level 12.2]",
+    "preExposure": 0.0625,
+    "rayStack": true
 }

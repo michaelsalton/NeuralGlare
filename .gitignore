@@ -46,3 +46,5 @@ engines/unity/*/Assets/Data/Inputs.meta
 .DS_Store
 
 CLAUDE.md
+
+outputs/

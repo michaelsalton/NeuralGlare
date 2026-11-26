@@ -4,5 +4,6 @@
 int _ParamOffset;   // the profile logits' start
 int _Ray;
 int _Stage;
+float _RayScale;    // pre-exposure factor of this pass (GlareChain.RecordRays)
 
 #include "../Generated/glare_Streak.hlsl"

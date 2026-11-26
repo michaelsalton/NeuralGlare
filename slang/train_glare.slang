@@ -16,6 +16,8 @@ struct TensorImage : IImage
         return float3(no_diff tensor.load(texel.y, texel.x, 0), no_diff tensor.load(texel.y, texel.x, 1),
                       no_diff tensor.load(texel.y, texel.x, 2));
     }
+    [Differentiable] float3 bilinear(no_diff float2 p) { return bilinear_from_loads(this, p); }
+    [Differentiable] float3 bilinear_zero(no_diff float2 p) { return bilinear_zero_from_loads(this, p); }
 }
 
 struct DiffTensorImage : IImage
@@ -27,6 +29,39 @@ struct DiffTensorImage : IImage
     {
         return float3(tensor.load(texel.y, texel.x, 0), tensor.load(texel.y, texel.x, 1),
                       tensor.load(texel.y, texel.x, 2));
+    }
+    [Differentiable] float3 bilinear(no_diff float2 p) { return bilinear_from_loads(this, p); }
+    [Differentiable] float3 bilinear_zero(no_diff float2 p) { return bilinear_zero_from_loads(this, p); }
+}
+
+// An image array (pyramid.slang IImageArray): an (N, H, W, 3) tensor whose slice k is image k,
+// e.g. ray k's last streak pass (the ray stack, efficiency step 1c). Taps from four loads, as
+// DiffTensorImage.
+struct DiffTensorStack : IImageArray
+{
+    DiffTensor<float, 4> tensor;
+    int2 size() { return int2(tensor.shape[2], tensor.shape[1]); }
+    [Differentiable]
+    float3 load(int ray, int2 texel)
+    {
+        // The array form indexes in shape order (ray, y, x, channel); slangpy's vector form is
+        // the reverse (x first), so it isn't used here.
+        int r[4] = { ray, texel.y, texel.x, 0 };
+        int g[4] = { ray, texel.y, texel.x, 1 };
+        int b[4] = { ray, texel.y, texel.x, 2 };
+        return float3(tensor.load(r), tensor.load(g), tensor.load(b));
+    }
+    [Differentiable]
+    float3 bilinear(int ray, no_diff float2 p)
+    {
+        ImageSlice<DiffTensorStack> slice = { this, ray };
+        return bilinear_from_loads(slice, p);
+    }
+    [Differentiable]
+    float3 bilinear_zero(int ray, no_diff float2 p)
+    {
+        ImageSlice<DiffTensorStack> slice = { this, ray };
+        return bilinear_zero_from_loads(slice, p);
     }
 }
 
@@ -111,25 +146,38 @@ float tap_weight(float2 uv, DiffTensor<float, 1> params, int channel, int tap)
 
 
 // Spikes (glare.slang). One pass of one ray: src is S_stage (mip 0 for stage 0), a DiffTensor
-// so the loss reaches the earlier passes' profile logits through it.
+// so the loss reaches the earlier passes' profile logits through it. scale: the pre-exposure factor
+// of this pass (glare.slang streak; 1 for no pre-exposure).
 [Differentiable]
 float3 streak_pass(int2 texel, DiffTensor<float, 3> src, DiffTensor<float, 1> params, int profile,
-                   int ray, int stage)
+                   int ray, int stage, float scale)
 {
     DiffTensorImage s = { src };
     TensorParams p = { params };
-    return streak(texel, s, p, profile, ray, stage);
+    return streak(texel, s, p, profile, ray, stage, scale);
+}
+
+// streak_pass on an image whose texels are 1 / texel_step output pixels wide (glare.slang
+// streak_at_scale; efficiency step 2c, the splat's residual rays at a lower resolution).
+[Differentiable]
+float3 streak_at_scale_pass(int2 texel, DiffTensor<float, 3> src, DiffTensor<float, 1> params,
+                            int profile, int ray, int stage, float scale, float texel_step)
+{
+    DiffTensorImage s = { src };
+    TensorParams p = { params };
+    return streak_at_scale(texel, s, p, profile, ray, stage, scale, texel_step);
 }
 
 // A ray's last pass, added to its family's sum so far.
 [Differentiable]
 float3 streak_accumulate_pass(int2 texel, DiffTensor<float, 3> src, DiffTensor<float, 3> acc,
-                              DiffTensor<float, 1> params, int profile, int ray, int stage)
+                              DiffTensor<float, 1> params, int profile, int ray, int stage,
+                              float scale)
 {
     DiffTensorImage s = { src };
     DiffTensorImage a = { acc };
     TensorParams p = { params };
-    return streak_accumulate(texel, s, a, p, profile, ray, stage);
+    return streak_accumulate(texel, s, a, p, profile, ray, stage, scale);
 }
 
 // The final frame: the full-resolution output mixed with the two families' rays.
@@ -145,8 +193,8 @@ float3 spike_pass(int2 texel, int2 out_size, DiffTensor<float, 3> base, DiffTens
 }
 
 // SpikeMLP's (inputs, hidden, outputs, PARAM_COUNT) and the streaks' (RAYS, PASSES, STREAK_TAPS,
-// PROFILE_COUNT): how Python sizes the spike section of the parameter buffer, which follows the
-// levels: [levels x LevelMLP][SpikeMLP][PROFILE_COUNT logits].
+// PROFILE_COUNT): how Python sizes the spike section of
+// the parameter buffer, which follows the levels: [levels x LevelMLP][SpikeMLP][profile logits].
 int4 spike_mlp_sizes()
 {
     return int4(SpikeMLP.IN_SIZE, SpikeMLP.HIDDEN_SIZE, SpikeMLP.OUT_SIZE, SpikeMLP.PARAM_COUNT);
@@ -171,12 +219,12 @@ float3 spike_mix(float2 uv, DiffTensor<float, 1> params, int offset, int channel
 [Differentiable]
 float3 ray_cross_accumulate_pass(int2 texel, int2 out_size, DiffTensor<float, 3> src,
                                  DiffTensor<float, 3> acc, DiffTensor<float, 1> params, int offset,
-                                 int ray)
+                                 int ray, float scale)
 {
     DiffTensorImage s = { src };
     DiffTensorImage a = { acc };
     TensorParams p = { params };
-    return ray_cross_accumulate(texel, out_size, s, a, p, offset, ray);
+    return ray_cross_accumulate(texel, out_size, s, a, p, offset, ray, scale);
 }
 
 // The cross filter's tap weights (-1, 0, +1 px along n_k) for ray `ray` at field vectors v
@@ -190,7 +238,7 @@ float3 cross_mix(float2 v, DiffTensor<float, 1> params, int offset, int ray)
 }
 
 // RayMLP's (inputs, hidden, outputs, PARAM_COUNT): the cross section of the parameter buffer,
-// after the spike section: [levels x LevelMLP][SpikeMLP][PROFILE_COUNT logits][RayMLP].
+// after the spike section: [levels x LevelMLP][SpikeMLP][profile logits][RayMLP].
 int4 ray_mlp_sizes()
 {
     return int4(RayMLP.IN_SIZE, RayMLP.HIDDEN_SIZE, RayMLP.OUT_SIZE, RayMLP.PARAM_COUNT);
@@ -201,12 +249,12 @@ int4 ray_mlp_sizes()
 [Differentiable]
 float3 ray_bright_accumulate_pass(int2 texel, int2 out_size, DiffTensor<float, 3> src,
                                   DiffTensor<float, 3> acc, DiffTensor<float, 1> params, int offset,
-                                  int ray)
+                                  int ray, float scale)
 {
     DiffTensorImage s = { src };
     DiffTensorImage a = { acc };
     TensorParams p = { params };
-    return ray_bright_accumulate(texel, out_size, s, a, p, offset, ray);
+    return ray_bright_accumulate(texel, out_size, s, a, p, offset, ray, scale);
 }
 
 // The final frame with per-ray brightness: each family divided by its normaliser, not by 7.
@@ -223,6 +271,20 @@ float3 spike_bright_pass(int2 texel, int2 out_size, DiffTensor<float, 3> base,
     return spike_composite_bright(texel, out_size, b, e, o, p, offset);
 }
 
+// The final frame from the ray stack (glare.slang spike_composite_stack, efficiency step 1c): rays
+// holds every ray's last streak pass (RAYS, H, W, 3); the cross filter, brightness and family sums
+// happen here. scale: 1 / pre-exposure. offset: SpikeMLP's start, as spike_bright_pass.
+[Differentiable]
+float3 spike_stack_pass(int2 texel, int2 out_size, DiffTensor<float, 3> base,
+                        DiffTensor<float, 4> rays, DiffTensor<float, 1> params, int offset,
+                        float scale)
+{
+    DiffTensorImage b = { base };
+    DiffTensorStack r = { rays };
+    TensorParams p = { params };
+    return spike_composite_stack(texel, out_size, b, r, p, offset, scale);
+}
+
 // Ray `ray`'s gain g_k = 7 e^{z_k} / Z at field vectors v (field_offset): the pre-fit regresses
 // through it, and the views save it. offset: BrightMLP's start.
 [Differentiable]
@@ -233,7 +295,7 @@ float ray_gain(float2 v, DiffTensor<float, 1> params, int offset, int ray)
 }
 
 // BrightMLP's (inputs, hidden, outputs, PARAM_COUNT): after RayMLP,
-// [levels x LevelMLP][SpikeMLP][PROFILE_COUNT logits][RayMLP][BrightMLP].
+// [levels x LevelMLP][SpikeMLP][profile logits][RayMLP][BrightMLP].
 int4 bright_mlp_sizes()
 {
     return int4(BrightMLP.IN_SIZE, BrightMLP.HIDDEN_SIZE, BrightMLP.OUT_SIZE, BrightMLP.PARAM_COUNT);

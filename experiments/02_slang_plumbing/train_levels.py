@@ -133,14 +133,17 @@ def bright_mlp(module):
 SPIKE_SOURCES = ("mip0", "input")   # the image a model's rays are streaked from (2026-11-05)
 
 
-def engine_layout(module, levels, spikes, source=None, cross=False, bright=False):
+def engine_layout(module, levels, spikes, source=None, cross=False, bright=False,
+                  ray_storage="fp32"):
     """The layout file the engines read next to a weight file (ParityHarness: glare_params.json):
     the network shapes from glare.slang, the level count, and, with the spike term, its sizes and
     which image its rays are streaked from (source, one of SPIKE_SOURCES). With the per-ray cross
     filter (cross, after the spike section), its parameter count and taps, and with per-ray
     brightness (bright, after the cross filter) its parameter count; the keys appear only then, so
-    the layout files of earlier runs still match. Written by train_points.py next to every export,
-    and by unity_parity.py export for older weights."""
+    the layout files of earlier runs still match. ray_storage: the format of the ray intermediates
+    (train_points.py --ray-storage, efficiency step 1a); `rayStorage` appears only when it isn't
+    fp32, for the same reason. Written by train_points.py next to every export, and by
+    unity_parity.py export for older weights."""
     assert (source in SPIKE_SOURCES) == spikes, (spikes, source)
     assert spikes or not cross, "the cross filter needs the spike term"
     assert cross or not bright, "per-ray brightness needs the cross filter"
@@ -159,6 +162,9 @@ def engine_layout(module, levels, spikes, source=None, cross=False, bright=False
     if bright:
         layout |= {"brightParamCount": bright_mlp(module).param_count,
                    "source": "slang/glare.slang LevelMLP, SpikeMLP, RayMLP and BrightMLP"}
+    if ray_storage != "fp32":
+        assert spikes, "ray storage without the spike term"
+        layout["rayStorage"] = ray_storage
     return layout
 
 

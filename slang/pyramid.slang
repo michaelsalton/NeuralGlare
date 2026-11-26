@@ -3,7 +3,9 @@
 
 // Code reads images through the IImage interface, so the same source runs on Slangpy
 // tensors (training) and on engine textures (wrappers in engines)
-// Bilinear filtering is done by hand from four loads, so both sides compute the same arithmetic
+// A bilinear tap is the image's job (IImage.bilinear / bilinear_zero): training images do it by hand
+// from four loads (bilinear_from_loads), engine textures may use the hardware filter (efficiency
+// step 1e, decision log 2026-11-24). The filters built from taps stay here and in glare.slang
 
 module pyramid;
 
@@ -11,6 +13,34 @@ public interface IImage
 {
     public int2 size();
     [Differentiable] public float3 load(int2 texel);
+    // A bilinear tap at continuous texel coordinates p (integers are texel centres): clamp-to-edge
+    // (bilinear) or 0 outside the image (bilinear_zero). Training images do it from four loads
+    // (bilinear_from_loads); engine textures may use the hardware filter (efficiency step 1e).
+    [Differentiable] public float3 bilinear(no_diff float2 p);
+    [Differentiable] public float3 bilinear_zero(no_diff float2 p);
+}
+
+// A stack of same-sized images read by slice (efficiency step 1c, decision log 2026-11-24): every
+// ray's last streak pass (the ray stack). Engine textures are texture arrays; training arrays
+// are tensors with a leading slice axis.
+public interface IImageArray
+{
+    public int2 size();
+    [Differentiable] public float3 load(int slice, int2 texel);
+    [Differentiable] public float3 bilinear(int slice, no_diff float2 p);
+    [Differentiable] public float3 bilinear_zero(int slice, no_diff float2 p);
+}
+
+// One slice of an image array as an image, so every filter on IImage runs on it unchanged.
+public struct ImageSlice<A : IImageArray> : IImage
+{
+    public A images;
+    public int slice;
+
+    public int2 size() { return images.size(); }
+    [Differentiable] public float3 load(int2 texel) { return images.load(slice, texel); }
+    [Differentiable] public float3 bilinear(no_diff float2 p) { return images.bilinear(slice, p); }
+    [Differentiable] public float3 bilinear_zero(no_diff float2 p) { return images.bilinear_zero(slice, p); }
 }
 
 // UV of a texel centre in a target of the given size
@@ -23,8 +53,14 @@ public float2 texel_uv(int2 texel, int2 size)
 [Differentiable]
 public float3 sample_bilinear<I : IImage>(I img, no_diff float2 uv)
 {
+    return img.bilinear(uv * float2(img.size()) - 0.5); // continuous texel coords: integers are texel centres
+}
+
+// A clamp-to-edge bilinear tap at texel coordinates p from four loads (IImage.bilinear by hand)
+[Differentiable]
+public float3 bilinear_from_loads<I : IImage>(I img, no_diff float2 p)
+{
     int2 size = img.size();
-    float2 p = uv * float2(size) - 0.5; // continuous texel coords: integers are texel centres
     float2 p0 = no_diff floor(p); // geometry only: gradients flow through the loads, not the weights
     float2 f = p - p0; // blend weight toward the right/lower neighbour
     int2 i0 = clamp(int2(p0), int2(0), size - 1);
@@ -92,7 +128,14 @@ public float3 load_zero<I : IImage>(I img, no_diff int2 texel)
 [Differentiable]
 public float3 sample_bilinear_zero<I : IImage>(I img, no_diff float2 p)
 {
-    float2 p0 = no_diff floor(p); // geometry only, as sample_bilinear
+    return img.bilinear_zero(p);
+}
+
+// sample_bilinear_zero from four loads (IImage.bilinear_zero by hand)
+[Differentiable]
+public float3 bilinear_zero_from_loads<I : IImage>(I img, no_diff float2 p)
+{
+    float2 p0 = no_diff floor(p); // geometry only, as bilinear_from_loads
     float2 f = p - p0;
     int2 i0 = int2(p0);
     float3 top = lerp(load_zero(img, i0), load_zero(img, i0 + int2(1, 0)), f.x);

@@ -1,0 +1,9 @@
+#pragma kernel StreakToStack
+
+// Declared here, not in the generated HLSL: Unity only binds plain uniforms in $Globals
+int _ParamOffset;   // the profile logits' start
+int _Ray;           // also the ray stack slice written
+int _Stage;
+float _RayScale;    // pre-exposure factor of this pass (GlareChain.RecordRays)
+
+#include "../Generated/glare_StreakToStack.hlsl"

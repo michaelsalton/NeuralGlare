@@ -1,0 +1,7 @@
+#pragma kernel SpikeCompositeStack
+
+// Declared here, not in the generated HLSL: Unity only binds plain uniforms in $Globals
+int _ParamOffset;   // SpikeMLP's start (the profile logits, RayMLP and BrightMLP follow)
+float _RayScale;    // 1 / pre-exposure (GlareChain.Record)
+
+#include "../Generated/glare_SpikeCompositeStack.hlsl"

@@ -16,7 +16,9 @@ Texture2D<float4 > _SpikeEven : register(t3);
 
 Texture2D<float4 > _SpikeOdd : register(t4);
 
-StructuredBuffer<float > _GlareParams : register(t5);
+StructuredBuffer<float > _GlareParams : register(t6);
+
+SamplerState sampler_LinearClamp : register(s0);
 
 float BufferParams_get_0(StructuredBuffer<float > this_buf_0, int index_0)
 {
@@ -271,49 +273,40 @@ int2 TextureImage_size_0(Texture2D<float4 > this_tex_0)
     return int2(int(w_2), int(h_2));
 }
 
-float3 TextureImage_load_0(Texture2D<float4 > this_tex_1, int2 texel_0)
+float3 TextureImage_bilinear_0(Texture2D<float4 > this_tex_1, float2 p_0)
 {
-    return this_tex_1.Load(int3(texel_0, int(0))).xyz;
+    return this_tex_1.SampleLevel(sampler_LinearClamp, (p_0 + 0.5f) / float2(TextureImage_size_0(this_tex_1)), 0.0f).xyz;
 }
 
 float3 sample_bilinear_0(Texture2D<float4 > img_tex_0, float2 uv_1)
 {
-    int2 _S61 = TextureImage_size_0(img_tex_0);
-    float2 p_0 = uv_1 * float2(_S61) - 0.5f;
-    float2 p0_0 = floor(p_0);
-    float2 f_0 = p_0 - p0_0;
-    int2 _S62 = int2(p0_0);
-    int2 _S63 = (int2)int(0);
-    int2 _S64 = _S61 - int(1);
-    int2 i0_0 = clamp(_S62, _S63, _S64);
-    int2 i1_0 = clamp(_S62 + int(1), _S63, _S64);
-    int _S65 = i0_0.x;
-    int _S66 = i0_0.y;
-    int _S67 = i1_0.x;
-    float3 _S68 = (float3)f_0.x;
-    int _S69 = i1_0.y;
-    return lerp(lerp(TextureImage_load_0(img_tex_0, int2(_S65, _S66)), TextureImage_load_0(img_tex_0, int2(_S67, _S66)), _S68), lerp(TextureImage_load_0(img_tex_0, int2(_S65, _S69)), TextureImage_load_0(img_tex_0, int2(_S67, _S69)), _S68), (float3)f_0.y);
+    return TextureImage_bilinear_0(img_tex_0, uv_1 * float2(TextureImage_size_0(img_tex_0)) - 0.5f);
 }
 
-float2 texel_uv_0(int2 texel_1, int2 size_0)
+float2 texel_uv_0(int2 texel_0, int2 size_0)
 {
-    return (float2(texel_1) + 0.5f) / float2(size_0);
+    return (float2(texel_0) + 0.5f) / float2(size_0);
 }
 
 float2 field_offset_0(float2 uv_2, int2 size_1)
 {
-    float2 _S70 = float2(size_1);
-    return (uv_2 - 0.5f) * _S70 / length(0.5f * _S70);
+    float2 _S61 = float2(size_1);
+    return (uv_2 - 0.5f) * _S61 / length(0.5f * _S61);
+}
+
+float3 TextureImage_load_0(Texture2D<float4 > this_tex_2, int2 texel_1)
+{
+    return this_tex_2.Load(int3(texel_1, int(0))).xyz;
 }
 
 float3 spike_composite_bright_0(int2 texel_2, int2 out_size_0, Texture2D<float4 > base_tex_0, Texture2D<float4 > even_tex_0, Texture2D<float4 > odd_tex_0, StructuredBuffer<float > params_buf_9, int offset_9)
 {
     float2 uv_3 = texel_uv_0(texel_2, out_size_0);
-    float3  _S71[int(3)];
-    spike_weights_0(uv_3, params_buf_9, offset_9, _S71);
+    float3  _S62[int(3)];
+    spike_weights_0(uv_3, params_buf_9, offset_9, _S62);
     float2 v_2 = field_offset_0(uv_3, out_size_0);
     int bright_0 = offset_9 + int(201) + int(24) + int(59);
-    return _S71[int(0)] * TextureImage_load_0(base_tex_0, texel_2) + _S71[int(1)] * sample_bilinear_0(even_tex_0, uv_3) / bright_norm_0(v_2, params_buf_9, bright_0, int(0)) + _S71[int(2)] * sample_bilinear_0(odd_tex_0, uv_3) / bright_norm_0(v_2, params_buf_9, bright_0, int(1));
+    return _S62[int(0)] * TextureImage_load_0(base_tex_0, texel_2) + _S62[int(1)] * sample_bilinear_0(even_tex_0, uv_3) / bright_norm_0(v_2, params_buf_9, bright_0, int(0)) + _S62[int(2)] * sample_bilinear_0(odd_tex_0, uv_3) / bright_norm_0(v_2, params_buf_9, bright_0, int(1));
 }
 
 int2 target_size_0()
@@ -328,14 +321,14 @@ int2 target_size_0()
 void SpikeCompositeBright(uint3 id_0 : SV_DispatchThreadID)
 {
     int2 size_2 = target_size_0();
-    int2 _S72 = int2(id_0.xy);
-    if(any(_S72 >= size_2))
+    int2 _S63 = int2(id_0.xy);
+    if(any(_S63 >= size_2))
     {
         return;
     }
-    uint2 _S73 = uint2(_S72);
-    int _S74 = ((_ParamOffset));
-    _Target[_S73] = float4(spike_composite_bright_0(_S72, size_2, _Source, _SpikeEven, _SpikeOdd, _GlareParams, _S74), 1.0f);
+    uint2 _S64 = uint2(_S63);
+    int _S65 = ((_ParamOffset));
+    _Target[_S64] = float4(spike_composite_bright_0(_S63, size_2, _Source, _SpikeEven, _SpikeOdd, _GlareParams, _S65), 1.0f);
     return;
 }
 

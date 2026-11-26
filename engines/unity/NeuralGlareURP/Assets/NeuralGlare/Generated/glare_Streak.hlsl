@@ -12,7 +12,9 @@ RWTexture2D<float4 > _Target : register(u0);
 
 Texture2D<float4 > _Source : register(t0);
 
-StructuredBuffer<float > _GlareParams : register(t5);
+StructuredBuffer<float > _GlareParams : register(t6);
+
+SamplerState sampler_LinearClamp : register(s0);
 
 int2 TextureImage_size_0(Texture2D<float4 > this_tex_0)
 {
@@ -46,7 +48,7 @@ float3 load_zero_0(Texture2D<float4 > img_tex_0, int2 texel_1)
     return TextureImage_load_0(img_tex_0, texel_1);
 }
 
-float3 sample_bilinear_zero_0(Texture2D<float4 > img_tex_1, float2 p_0)
+float3 bilinear_zero_from_loads_0(Texture2D<float4 > img_tex_1, float2 p_0)
 {
     float2 p0_0 = floor(p_0);
     float2 f_0 = p_0 - p0_0;
@@ -55,42 +57,84 @@ float3 sample_bilinear_zero_0(Texture2D<float4 > img_tex_1, float2 p_0)
     return lerp(lerp(load_zero_0(img_tex_1, _S3), load_zero_0(img_tex_1, _S3 + int2(int(1), int(0))), _S4), lerp(load_zero_0(img_tex_1, _S3 + int2(int(0), int(1))), load_zero_0(img_tex_1, _S3 + int2(int(1), int(1))), _S4), (float3)f_0.y);
 }
 
+float3 TextureImage_bilinear_zero_0(Texture2D<float4 > this_tex_2, float2 p_1)
+{
+    int2 _S5 = TextureImage_size_0(this_tex_2);
+    float2 p0_1 = floor(p_1);
+    bool _S6;
+    if(all(p0_1 >= 0.0f))
+    {
+        _S6 = all(p0_1 < float2(_S5 - int(1)));
+    }
+    else
+    {
+        _S6 = false;
+    }
+    if(_S6)
+    {
+        return this_tex_2.SampleLevel(sampler_LinearClamp, (p_1 + 0.5f) / float2(_S5), 0.0f).xyz;
+    }
+    if(any(p0_1 < -1.0f))
+    {
+        _S6 = true;
+    }
+    else
+    {
+        _S6 = any(p0_1 > float2(_S5 - int(1)));
+    }
+    if(_S6)
+    {
+        return (float3)0.0f;
+    }
+    return bilinear_zero_from_loads_0(this_tex_2, p_1);
+}
+
+float3 sample_bilinear_zero_0(Texture2D<float4 > img_tex_2, float2 p_2)
+{
+    return TextureImage_bilinear_zero_0(img_tex_2, p_2);
+}
+
 float BufferParams_get_0(StructuredBuffer<float > this_buf_0, int index_0)
 {
     return this_buf_0.Load(index_0);
 }
 
-void softmax_0(float  z_0[int(4)], out float  _S5[int(4)])
+void softmax_0(float  z_0[int(4)], out float  _S7[int(4)])
 {
-    float _S6 = max(max(max(z_0[int(0)], z_0[int(1)]), z_0[int(2)]), z_0[int(3)]);
+    float _S8 = max(max(max(z_0[int(0)], z_0[int(1)]), z_0[int(2)]), z_0[int(3)]);
     float  w_1[int(4)];
-    float _S7 = exp(z_0[int(0)] - _S6);
-    float _S8 = exp(z_0[int(1)] - _S6);
-    float _S9 = exp(z_0[int(2)] - _S6);
-    float _S10 = exp(z_0[int(3)] - _S6);
-    float sum_0 = _S7 + _S8 + _S9 + _S10;
-    w_1[int(0)] = _S7 / sum_0;
-    w_1[int(1)] = _S8 / sum_0;
-    w_1[int(2)] = _S9 / sum_0;
-    w_1[int(3)] = _S10 / sum_0;
-    _S5 = w_1;
+    float _S9 = exp(z_0[int(0)] - _S8);
+    float _S10 = exp(z_0[int(1)] - _S8);
+    float _S11 = exp(z_0[int(2)] - _S8);
+    float _S12 = exp(z_0[int(3)] - _S8);
+    float sum_0 = _S9 + _S10 + _S11 + _S12;
+    w_1[int(0)] = _S9 / sum_0;
+    w_1[int(1)] = _S10 / sum_0;
+    w_1[int(2)] = _S11 / sum_0;
+    w_1[int(3)] = _S12 / sum_0;
+    _S7 = w_1;
     return;
 }
 
 static const float2  RAY_DIRS_0[int(14)] = { float2(1.0f, 0.0f), float2(0.90096884965896606f, 0.43388372659683228f), float2(0.62348979711532593f, 0.78183150291442871f), float2(0.22252093255519867f, 0.97492790222167969f), float2(-0.22252093255519867f, 0.97492790222167969f), float2(-0.62348979711532593f, 0.78183150291442871f), float2(-0.90096884965896606f, 0.43388372659683228f), float2(-1.0f, 0.0f), float2(-0.90096884965896606f, -0.43388372659683228f), float2(-0.62348979711532593f, -0.78183150291442871f), float2(-0.22252093255519867f, -0.97492790222167969f), float2(0.22252093255519867f, -0.97492790222167969f), float2(0.62348979711532593f, -0.78183150291442871f), float2(0.90096884965896606f, -0.43388372659683228f) };
-float3 streak_0(int2 texel_2, Texture2D<float4 > src_tex_0, StructuredBuffer<float > params_buf_0, int profile_0, int ray_0, int stage_0)
+float3 streak_at_scale_0(int2 texel_2, Texture2D<float4 > src_tex_0, StructuredBuffer<float > params_buf_0, int profile_0, int ray_0, int stage_0, float scale_0, float texel_step_0)
 {
-    int _S11 = profile_0 + (ray_0 % int(2) * int(3) + stage_0) * int(4);
+    int _S13 = profile_0 + (ray_0 % int(2) * int(3) + stage_0) * int(4);
     float  z_1[int(4)];
-    z_1[int(0)] = BufferParams_get_0(params_buf_0, _S11);
-    z_1[int(1)] = BufferParams_get_0(params_buf_0, _S11 + int(1));
-    z_1[int(2)] = BufferParams_get_0(params_buf_0, _S11 + int(2));
-    z_1[int(3)] = BufferParams_get_0(params_buf_0, _S11 + int(3));
-    float  _S12[int(4)];
-    softmax_0(z_1, _S12);
-    float2 _S13 = RAY_DIRS_0[ray_0] * float(int(1) << (int(2) * stage_0));
-    float2 _S14 = float2(texel_2);
-    return _S12[int(0)] * sample_bilinear_zero_0(src_tex_0, _S14 - 0.0f * _S13) + _S12[int(1)] * sample_bilinear_zero_0(src_tex_0, _S14 - _S13) + _S12[int(2)] * sample_bilinear_zero_0(src_tex_0, _S14 - 2.0f * _S13) + _S12[int(3)] * sample_bilinear_zero_0(src_tex_0, _S14 - 3.0f * _S13);
+    z_1[int(0)] = BufferParams_get_0(params_buf_0, _S13);
+    z_1[int(1)] = BufferParams_get_0(params_buf_0, _S13 + int(1));
+    z_1[int(2)] = BufferParams_get_0(params_buf_0, _S13 + int(2));
+    z_1[int(3)] = BufferParams_get_0(params_buf_0, _S13 + int(3));
+    float  _S14[int(4)];
+    softmax_0(z_1, _S14);
+    float2 _S15 = RAY_DIRS_0[ray_0] * (float(int(1) << (int(2) * stage_0)) * texel_step_0);
+    float2 _S16 = float2(texel_2);
+    return scale_0 * (_S14[int(0)] * sample_bilinear_zero_0(src_tex_0, _S16 - 0.0f * _S15) + _S14[int(1)] * sample_bilinear_zero_0(src_tex_0, _S16 - _S15) + _S14[int(2)] * sample_bilinear_zero_0(src_tex_0, _S16 - 2.0f * _S15) + _S14[int(3)] * sample_bilinear_zero_0(src_tex_0, _S16 - 3.0f * _S15));
+}
+
+float3 streak_0(int2 texel_3, Texture2D<float4 > src_tex_1, StructuredBuffer<float > params_buf_1, int profile_1, int ray_1, int stage_1, float scale_1)
+{
+    return streak_at_scale_0(texel_3, src_tex_1, params_buf_1, profile_1, ray_1, stage_1, scale_1, 1.0f);
 }
 
 int2 target_size_0()
@@ -104,16 +148,17 @@ int2 target_size_0()
 [numthreads(8, 8, 1)]
 void Streak(uint3 id_0 : SV_DispatchThreadID)
 {
-    int2 _S15 = int2(id_0.xy);
-    if(any(_S15 >= (target_size_0())))
+    int2 _S17 = int2(id_0.xy);
+    if(any(_S17 >= (target_size_0())))
     {
         return;
     }
-    uint2 _S16 = uint2(_S15);
-    int _S17 = ((_ParamOffset));
-    int _S18 = ((_Ray));
-    int _S19 = ((_Stage));
-    _Target[_S16] = float4(streak_0(_S15, _Source, _GlareParams, _S17, _S18, _S19), 1.0f);
+    uint2 _S18 = uint2(_S17);
+    int _S19 = ((_ParamOffset));
+    int _S20 = ((_Ray));
+    int _S21 = ((_Stage));
+    float _S22 = ((_RayScale));
+    _Target[_S18] = float4(streak_0(_S17, _Source, _GlareParams, _S19, _S20, _S21, _S22), 1.0f);
     return;
 }
 

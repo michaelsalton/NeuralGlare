@@ -13,5 +13,6 @@
   "crossParamCount": 59,
   "crossTaps": 3,
   "brightParamCount": 41,
+  "rayStorage": "fp16",
   "mips": 1
 }

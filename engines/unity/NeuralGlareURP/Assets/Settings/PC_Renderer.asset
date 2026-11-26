@@ -24,9 +24,12 @@ MonoBehaviour:
     rayBrightAccumulate: {fileID: 7200000, guid: adc1208cc8cf2454c8f1b22c7de2e837, type: 3}
     spikeComposite: {fileID: 7200000, guid: 361e31938e00add46ac4f04934c710bd, type: 3}
     spikeCompositeBright: {fileID: 7200000, guid: d2c8283abac05d244b27592587b8904f, type: 3}
+    streakToStack: {fileID: 7200000, guid: fbfb8e817eb44b01bad89f4bbaf8fb0c, type: 3}
+    spikeCompositeStack: {fileID: 7200000, guid: 57531019b97846899379cfd2641842a2, type: 3}
   weights: {fileID: 4900000, guid: 7a413a749c71e9c47a7e2affc09b582e, type: 3}
   layout: {fileID: 4900000, guid: 88bd862d20f222d4bb11420afdd76c3c, type: 3}
   passEvent: 550
+  preExposure: 0.0625
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0

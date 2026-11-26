@@ -78,7 +78,15 @@ public float3 upsample<I : IImage, J : IImage, P : IParams>(no_diff int2 texel, 
                                                             no_diff int offset)
 {
     float2 uv = no_diff texel_uv(texel, out_size);
-    float3 w[TAPS] = weights(uv, params, offset);                     // per channel
+    return upsample_weighted(texel, out_size, mip, low, weights(uv, params, offset));
+}
+
+// The upsample's taps mixed by given per-channel weights w (upsample: from the network).
+[Differentiable]
+public float3 upsample_weighted<I : IImage, J : IImage>(no_diff int2 texel, no_diff int2 out_size,
+                                                        I mip, J low, float3 w[TAPS])
+{
+    float2 uv = no_diff texel_uv(texel, out_size);
     float2 o = no_diff field_offset(uv, out_size) / float2(out_size);   // texels -> uv
     float3 c = no_diff mip.load(texel);
     float3 a = sample_bilinear(mip, uv + o);
@@ -95,20 +103,19 @@ public float3 upsample<I : IImage, J : IImage, P : IParams>(no_diff int2 texel, 
 // even k and odd k, with different widths and falloffs. The ray opposite ray k is ray k + 7, of
 // the other family, so every line through a source is asymmetric.
 //
-// Each ray is a streak filter (as Kawase's star filter) on mip 0, built in PASSES passes:
-//     S_0 = mip0,   S_{p+1}(x) = sum_n c[f][p][n] * S_p(x - n * 4^p * e_k),   n = 0..3
-// Pass p moves light by one base-4 digit (0..3) x 4^p texels, so the three passes reach every
+// Each ray is a streak filter (as Kawase's star filter) on mip 0, built in passes of T taps:
+//     S_0 = mip0,   S_{p+1}(x) = sum_n c[f][p][n] * S_p(x - n * T^p * e_k),   n = 0..T-1
+// Pass p moves light by one base-T digit (0..T-1) x T^p texels, so the passes reach every
 // distance 0..63 texels exactly once: a point gets a continuous ray, and the ray's profile is
-// the product of one weight per digit. c[f][p] = softmax of this family's logits for the pass:
+// the product of one weight per digit. T = 4 in 3 passes (two passes of 8 taps cost the same, as
+// every pass is fetch-bound: efficiency step 2a, decision log 2026-11-25). c[f][p] = softmax of
+// this family's logits for the pass:
 // positive and summing to 1, so each ray keeps its light. The logits are global (one profile per
 // family, shared by the channels), not per pixel; SpikeMLP(uv) sets how much light goes to each
 // family per pixel and channel. Grey profiles suffice: the exact halo's tint is constant over
 // 6..64 px (decision log 2026-11-09).
 
 public static const int RAYS = 14;
-public static const int PASSES = 3;
-public static const int STREAK_TAPS = 4;
-public static const int PROFILE_COUNT = 2 * PASSES * STREAK_TAPS;  // logits, family-major
 public static const int MIX = 3;                                   // pyramid, even rays, odd rays
 public typealias SpikeMLP = MLP<2, 16, 9>;                         // MIX x CHANNELS, channel-major
 
@@ -131,13 +138,43 @@ static const float2 RAY_DIRS[RAYS] = {
     float2(0.900968868, -0.433883739),
 };
 
-// One pass of ray `ray`: S_{stage+1} at a texel from S_stage (src). profile: where the logits
-// start in the parameter buffer. The gather reads from x - d * e_k, so a source's light lands
-// at +d * e_k: the ray points along e_k. Zero outside the frame (sample_bilinear_zero).
+// Pre-exposure (efficiency step 1a, decision log 2026-11-24). An engine may store the streak passes'
+// outputs in fp16, whose range ends at 65504, below a real sun (3.8e5 in goegap_road_4k). Every
+// weight depends on uv only, so the rays are linear in light: scaling the light by k before it is
+// stored and by 1/k after changes nothing but where the values sit in fp16's range (exactly, for k a
+// power of two). So every ray function takes a scale, multiplied into its output: the host passes
+// k to the first streak pass, 1/k to the pass that adds the ray to its family's float32 sum, and 1
+// to the others (k * 1/k when one pass does both). k is the host's pre-exposure, as Unreal's
+// PreExposure: a game would set it per frame from its exposure.
+
+// The streak geometry: STREAK_TAPS taps per pass; PASSES passes reach 0..63 texels (4^3 = 64).
+// The profile logits follow SpikeMLP, family-major then pass-major ([f][p][n]).
+public static const int STREAK_TAPS = 4;
+public static const int PASSES = 3;
+public static const int PROFILE_COUNT = 2 * PASSES * STREAK_TAPS;
+
+// One pass of ray `ray`: S_{stage+1} at a texel from S_stage (src), times scale (pre-exposure, above).
+// profile: where the logits start in the parameter buffer. The gather reads from x - d * e_k, so a
+// source's light lands at +d * e_k: the ray points along e_k. Zero outside the frame
+// (sample_bilinear_zero).
 [Differentiable]
 public float3 streak<I : IImage, P : IParams>(no_diff int2 texel, I src, P params,
                                               no_diff int profile, no_diff int ray,
-                                              no_diff int stage)
+                                              no_diff int stage, no_diff float scale)
+{
+    return streak_at_scale(texel, src, params, profile, ray, stage, scale, 1.0);
+}
+
+// streak on an image whose texels are 1 / texel_step output pixels wide: the tap spacing is
+// 4^stage * texel_step texels, so a ray keeps its length in output pixels (0..63) at any
+// resolution. texel_step = 1 is streak. For the splat's residual rays at a lower resolution
+// (efficiency step 2c, decision log 2026-11-25): at half resolution texel_step = 0.5, so the
+// first pass's taps fall between texels and the bilinear fetch widens the ray.
+[Differentiable]
+public float3 streak_at_scale<I : IImage, P : IParams>(no_diff int2 texel, I src, P params,
+                                                       no_diff int profile, no_diff int ray,
+                                                       no_diff int stage, no_diff float scale,
+                                                       no_diff float texel_step)
 {
     int base = profile + ((ray % 2) * PASSES + stage) * STREAK_TAPS;
     float z[STREAK_TAPS];
@@ -145,23 +182,24 @@ public float3 streak<I : IImage, P : IParams>(no_diff int2 texel, I src, P param
     for (int n = 0; n < STREAK_TAPS; ++n)
         z[n] = params.get(base + n);
     float c[STREAK_TAPS] = softmax<STREAK_TAPS>(z);
-    float2 step = RAY_DIRS[ray] * float(1 << (2 * stage));         // 4^stage texels
+    float2 step = RAY_DIRS[ray] * (float(1 << (2 * stage)) * texel_step);   // 4^stage px
     float3 sum = float3(0.0);
     [ForceUnroll]
     for (int n = 0; n < STREAK_TAPS; ++n)
         sum += c[n] * sample_bilinear_zero(src, float2(texel) - float(n) * step);
-    return sum;
+    return scale * sum;
 }
 
-// The last pass of a ray, added to its family's running sum (acc) of the rays before it.
+// The last pass of a ray, times scale, added to its family's running sum (acc) of the rays before it.
 [Differentiable]
 public float3 streak_accumulate<I : IImage, J : IImage, P : IParams>(no_diff int2 texel, I src,
                                                                      J acc, P params,
                                                                      no_diff int profile,
                                                                      no_diff int ray,
-                                                                     no_diff int stage)
+                                                                     no_diff int stage,
+                                                                     no_diff float scale)
 {
-    return acc.load(texel) + streak(texel, src, params, profile, ray, stage);
+    return acc.load(texel) + streak(texel, src, params, profile, ray, stage, scale);
 }
 
 // ------------------------------------------------------------------- per-ray cross filter
@@ -196,7 +234,14 @@ public float3 ray_cross<I : IImage, P : IParams>(no_diff int2 texel, no_diff int
 {
     float2 uv = no_diff texel_uv(texel, out_size);
     float2 v = no_diff field_offset(uv, out_size);
-    float a[CROSS_TAPS] = cross_weights(v, params, offset, ray);
+    return ray_cross_weighted(texel, src, ray, cross_weights(v, params, offset, ray));
+}
+
+// The cross filter's taps on src mixed by given weights a (ray_cross: from RayMLP).
+[Differentiable]
+public float3 ray_cross_weighted<I : IImage>(no_diff int2 texel, I src, no_diff int ray,
+                                             float a[CROSS_TAPS])
+{
     float2 e = RAY_DIRS[ray];
     float2 n = float2(-e.y, e.x);
     float3 sum = float3(0.0);
@@ -206,13 +251,13 @@ public float3 ray_cross<I : IImage, P : IParams>(no_diff int2 texel, no_diff int
     return sum;
 }
 
-// The cross-filtered ray added to its family's running sum.
+// The cross-filtered ray, times scale (pre-exposure: 1/k), added to its family's running sum.
 [Differentiable]
 public float3 ray_cross_accumulate<I : IImage, J : IImage, P : IParams>(
     no_diff int2 texel, no_diff int2 out_size, I src, J acc, P params, no_diff int offset,
-    no_diff int ray)
+    no_diff int ray, no_diff float scale)
 {
-    return acc.load(texel) + ray_cross(texel, out_size, src, params, offset, ray);
+    return acc.load(texel) + scale * ray_cross(texel, out_size, src, params, offset, ray);
 }
 
 // ---------------------------------------------------------------------- per-ray brightness
@@ -261,17 +306,61 @@ public float bright_gain<P : IParams>(no_diff float2 v, P params, no_diff int of
            / bright_norm(v, params, offset, ray % 2);
 }
 
-// The cross-filtered ray times e^{z_k}, added to its family's running sum. offset: RayMLP's start
-// (BrightMLP's is after it).
+// The cross-filtered ray times e^{z_k} and scale (pre-exposure: 1/k), added to its family's running
+// sum. offset: RayMLP's start (BrightMLP's is after it).
 [Differentiable]
 public float3 ray_bright_accumulate<I : IImage, J : IImage, P : IParams>(
     no_diff int2 texel, no_diff int2 out_size, I src, J acc, P params, no_diff int offset,
-    no_diff int ray)
+    no_diff int ray, no_diff float scale)
 {
     float2 uv = no_diff texel_uv(texel, out_size);
     float2 v = no_diff field_offset(uv, out_size);
     float z = bright_logit(v, params, offset + RayMLP.PARAM_COUNT, ray);
-    return acc.load(texel) + exp(z) * ray_cross(texel, out_size, src, params, offset, ray);
+    return acc.load(texel) + (scale * exp(z)) * ray_cross(texel, out_size, src, params, offset, ray);
+}
+
+// ---------------------------------------------------------------------- the ray stack
+// Efficiency step 1c (decision log 2026-11-24): every ray's last streak pass S_3 kept in its own
+// slice of an image array (pyramid.slang IImageArray), so one composite pass does each ray's
+// cross filter and brightness and forms both family sums and their normalisers in registers
+// (spike_composite_stack). Same arithmetic as ray_bright_accumulate + spike_composite_bright,
+// without storing the float32 family sums.
+
+// ray k's term in its family's sum and its e^{z_k}, from the stack (ray_bright_accumulate's add).
+[Differentiable]
+float4 stacked_ray<R : IImageArray, P : IParams>(no_diff int2 texel, no_diff int2 out_size,
+                                                 no_diff float2 v, R rays, P params,
+                                                 no_diff int cross, no_diff int ray)
+{
+    ImageSlice<R> slice = { rays, ray };
+    float e = exp(bright_logit(v, params, cross + RayMLP.PARAM_COUNT, ray));
+    return float4(e * ray_cross(texel, out_size, slice, params, cross, ray), e);
+}
+
+// spike_composite_bright with the families formed here from the stack: rays holds S_3 of every
+// ray (times the pre-exposure k), scale is 1/k. Families summed ray 0, 2, 4, ... and 1, 3, 5, ...
+// as the per-ray passes do. One even and one odd ray per iteration, so the sums stay in named
+// registers (no dynamically indexed local array); a loop, not unrolled, to bound register use.
+// offset: SpikeMLP's start; the profile logits (PROFILE_COUNT), RayMLP and BrightMLP follow.
+[Differentiable]
+public float3 spike_composite_stack<I : IImage, R : IImageArray, P : IParams>(
+    no_diff int2 texel, no_diff int2 out_size, I base, R rays, P params, no_diff int offset,
+    no_diff float scale)
+{
+    float2 uv = no_diff texel_uv(texel, out_size);
+    float3 w[MIX] = spike_weights(uv, params, offset);
+    float2 v = no_diff field_offset(uv, out_size);
+    int cross = offset + SpikeMLP.PARAM_COUNT + PROFILE_COUNT;
+    float4 even = float4(0.0);                          // (sum_k e^{z_k} S'_k, Z) of each family
+    float4 odd = float4(0.0);
+    [MaxIters(RAYS / 2)]
+    for (int j = 0; j < RAYS / 2; ++j)
+    {
+        even += stacked_ray(texel, out_size, v, rays, params, cross, 2 * j);
+        odd += stacked_ray(texel, out_size, v, rays, params, cross, 2 * j + 1);
+    }
+    return w[0] * base.load(texel)
+           + w[1] * (scale * even.rgb) / even.w + w[2] * (scale * odd.rgb) / odd.w;
 }
 
 // How the full-resolution output and the two families mix at a screen position:
@@ -300,7 +389,7 @@ public float3 spike_composite<I : IImage, J : IImage, K : IImage, P : IParams>(
 
 // spike_composite with per-ray brightness: even / odd hold sum_k e^{z_k} S'_k (ray_bright_accumulate),
 // so each family is divided by its normaliser Z at this texel instead of by 7. offset: SpikeMLP's
-// start; BrightMLP's follows the profile logits and RayMLP.
+// start; BrightMLP's follows the profile logits (PROFILE_COUNT) and RayMLP.
 [Differentiable]
 public float3 spike_composite_bright<I : IImage, J : IImage, K : IImage, P : IParams>(
     no_diff int2 texel, no_diff int2 out_size, I base, J even, K odd, P params, no_diff int offset)

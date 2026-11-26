@@ -14,7 +14,18 @@
       "name": "goegap_road_4k_corner",
       "width": 1920,
       "height": 1080
+    },
+    {
+      "name": "points_val",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "points_test",
+      "width": 1920,
+      "height": 1080
     }
   ],
-  "weights": "outputs/03_train_network/default/ray_bright/export/glare_params_bright_abs_fitted_lr0.001_ee0.02_mips1.bytes"
+  "weights": "outputs/03_train_network/default/ray_bright/export/glare_params_bright_abs_fitted_lr0.001_ee0.02_mips1_rayfp16.bytes",
+  "run": "default"
 }
